@@ -39,3 +39,6 @@ yarn.lock
 # Agent skills & user config
 .agents/
 .pi/
+
+# Machine-local agent instructions (never published or pushed)
+AGENTS.override.md
