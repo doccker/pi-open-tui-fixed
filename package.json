@@ -1,11 +1,15 @@
 {
   "name": "pi-open-tui-fixed",
-  "version": "0.3.6-wwj.1",
-  "description": "A locally maintained pi-open-tui variant with scroll-stable event-driven working refresh.",
+  "version": "0.4.0",
+  "description": "Fork of pi-open-tui for the Pi coding agent: same TUI, but working-state refresh defaults to event-driven so terminal scrollback stays stable while the model works.",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OldSuns/pi-open-tui.git"
+    "url": "git+https://github.com/doccker/pi-open-tui-fixed.git"
+  },
+  "homepage": "https://github.com/doccker/pi-open-tui-fixed#readme",
+  "bugs": {
+    "url": "https://github.com/doccker/pi-open-tui-fixed/issues"
   },
   "keywords": [
     "pi-package",
@@ -32,7 +36,7 @@
     "extensions": [
       "./extensions/open-tui/index.ts"
     ],
-    "image": "https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png"
+    "image": "https://raw.githubusercontent.com/doccker/pi-open-tui-fixed/main/assets/preview_dashboard_1.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.81",

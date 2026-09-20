@@ -25,16 +25,22 @@
 
 ## 安装
 
-从本地源码目录安装：
+从 npm 安装：
 
 ```bash
-pi install /absolute/path/to/pi-open-tui-fixed
+pi install npm:pi-open-tui-fixed
 ```
 
-也可以只在当前会话中试用：
+也可以直接从 git 安装：
 
 ```bash
-pi -e /absolute/path/to/pi-open-tui-fixed
+pi install git:github.com/doccker/pi-open-tui-fixed
+```
+
+或只在当前会话中试用：
+
+```bash
+pi -e npm:pi-open-tui-fixed
 ```
 
 不要同时加载本版本和上游 npm 包，因为两者都会注册 `/open-tui` 并替换相同的界面组件。

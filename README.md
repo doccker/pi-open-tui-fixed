@@ -25,16 +25,22 @@ A locally maintained variant of [pi-open-tui](https://github.com/OldSuns/pi-open
 
 ## Install
 
-Install this local package from its checkout:
+Install from npm:
 
 ```bash
-pi install /absolute/path/to/pi-open-tui-fixed
+pi install npm:pi-open-tui-fixed
+```
+
+Or install straight from git:
+
+```bash
+pi install git:github.com/doccker/pi-open-tui-fixed
 ```
 
 Or try it for one session:
 
 ```bash
-pi -e /absolute/path/to/pi-open-tui-fixed
+pi -e npm:pi-open-tui-fixed
 ```
 
 Do not load this variant and the upstream npm package together because both register `/open-tui` and replace the same UI components.
