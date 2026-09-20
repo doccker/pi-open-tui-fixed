@@ -365,16 +365,32 @@ test("normalizes invalid settings values", () => {
 			settingsLanguage: "de",
 			cursorStyle: "invalid",
 			thinkingPeek: { lines: 9 },
+			workingRefresh: { mode: "invalid" },
 		}), "utf8");
 		const loaded = loadConfig();
 		assert.equal(loaded.settingsLanguage, "en");
 		assert.equal(loaded.cursorStyle, "block");
 		assert.equal(loaded.thinkingPeek.lines, 1);
+		assert.equal(loaded.workingRefresh.mode, "event");
 	} finally {
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		rmSync(agentDir, { recursive: true, force: true });
 	}
+});
+
+test("configures event-driven working refresh by default", async () => {
+	const settings = await openSettings();
+	assert.equal(settings.getConfig().workingRefresh.mode, "event");
+
+	// Enabled → Language → Wheel speed → Thinking peek → Working refresh
+	for (let i = 0; i < 4; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Working refresh/);
+	assert.match(selectedLine(settings.component), /Event-driven/);
+
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().workingRefresh.mode, "realtime");
+	assert.match(selectedLine(settings.component), /Realtime \(250 ms\)/);
 });
 
 test("cycles the thinking peek line count from General settings", async () => {

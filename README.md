@@ -2,7 +2,7 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brings the strongest ideas from pi-haiku, pi-claude-code-tui, and pi-zentui into one configurable extension.
+A locally maintained variant of [pi-open-tui](https://github.com/OldSuns/pi-open-tui) for the [Pi](https://pi.dev) coding agent. It keeps the upstream interface while defaulting working-state updates to a scroll-stable, event-driven mode.
 
 ![pi-open-tui preview](https://raw.githubusercontent.com/OldSuns/pi-open-tui/main/assets/preview_dashboard_1.png)
 
@@ -25,17 +25,19 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 
 ## Install
 
-Install the extension:
+Install this local package from its checkout:
 
 ```bash
-pi install npm:pi-open-tui
+pi install /absolute/path/to/pi-open-tui-fixed
 ```
 
 Or try it for one session:
 
 ```bash
-pi -e npm:pi-open-tui
+pi -e /absolute/path/to/pi-open-tui-fixed
 ```
+
+Do not load this variant and the upstream npm package together because both register `/open-tui` and replace the same UI components.
 
 ## Font and icons
 
@@ -88,6 +90,9 @@ Run `/open-tui` to open the settings dialog. It provides **General**, **Appearan
   },
   "thinkingPeek": {
     "lines": 1
+  },
+  "workingRefresh": {
+    "mode": "event"
   }
 }
 ```
@@ -103,10 +108,17 @@ Key options:
 | `footerSegments` | Boolean flags | Shows or hides individual footer data |
 | `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
 | `thinkingPeek.lines` | `0`, `1`, `2` | Off, one-line, or two-line hidden thinking preview |
+| `workingRefresh.mode` | `event`, `realtime` | Footer refresh strategy while the agent works; defaults to scroll-stable `event` mode |
 
 `sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` shows the short hash and tag in detached HEAD state. Disabling `extensionStatuses` hides the entire extension status line, including MCP status.
 
 Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runtime field because Pi does not yet expose a public setter. On Pi versions without a compatible field, the setting is ignored and Pi's default scrolling remains active.
+
+### Working refresh
+
+`event` mode refreshes the footer at agent and message lifecycle boundaries without running the upstream 250 ms timer. This prevents periodic footer redraws from disrupting macOS Terminal scrollback while the model is working. Elapsed time is still calculated from timestamps and the final duration remains accurate, but the visible counter may pause between events.
+
+`realtime` mode restores the upstream 250 ms periodic refresh. Use it only in terminals where active scrollback remains stable.
 
 ## Turn telemetry
 

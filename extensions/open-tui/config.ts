@@ -10,6 +10,7 @@ import type { IconMode } from "./icons.ts";
 export type SettingsLanguage = "en" | "zh";
 export type CursorStyle = "block" | "bar" | "underline";
 export type ThinkingPeekLines = 0 | 1 | 2;
+export type WorkingRefreshMode = "event" | "realtime";
 
 export type { IconMode } from "./icons.ts";
 
@@ -41,6 +42,10 @@ export interface ThinkingPeekConfig {
 	lines: ThinkingPeekLines;
 }
 
+export interface WorkingRefreshConfig {
+	mode: WorkingRefreshMode;
+}
+
 export interface FullscreenConfig {
 	wheelScrollLines: number;
 }
@@ -56,6 +61,7 @@ export interface OpenTuiConfig {
 	footerSegments: FooterSegments;
 	telemetry: TelemetryConfig;
 	thinkingPeek: ThinkingPeekConfig;
+	workingRefresh: WorkingRefreshConfig;
 }
 
 export const DEFAULT_CONFIG: OpenTuiConfig = {
@@ -92,6 +98,9 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	},
 	thinkingPeek: {
 		lines: 1,
+	},
+	workingRefresh: {
+		mode: "event",
 	},
 };
 
@@ -163,6 +172,11 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.thinkingPeek = structuredClone(DEFAULT_CONFIG.thinkingPeek);
 		} else {
 			config.thinkingPeek.lines = normalizeThinkingPeekLines(config.thinkingPeek.lines);
+		}
+		if (typeof config.workingRefresh !== "object" || config.workingRefresh === null || Array.isArray(config.workingRefresh)) {
+			config.workingRefresh = structuredClone(DEFAULT_CONFIG.workingRefresh);
+		} else if (config.workingRefresh.mode !== "event" && config.workingRefresh.mode !== "realtime") {
+			config.workingRefresh.mode = DEFAULT_CONFIG.workingRefresh.mode;
 		}
 		return config;
 	} catch (err) {

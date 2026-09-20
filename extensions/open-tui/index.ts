@@ -15,6 +15,7 @@ import {
 	type FooterState,
 } from "./state.ts";
 import { resolveGlyphs } from "./icons.ts";
+import { startWorkingRefresh } from "./working-refresh.ts";
 import {
 	buildPeekLabel,
 	collectPeekParts,
@@ -51,7 +52,7 @@ export default function (pi: ExtensionAPI) {
 	let active = false;
 	let lastCtx: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
-	let workingTimer: ReturnType<typeof setInterval> | undefined;
+	let stopWorkingRefresh: (() => void) | undefined;
 	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
@@ -205,22 +206,17 @@ export default function (pi: ExtensionAPI) {
 		requestFooterRender?.();
 	};
 
-	const startWorkingTimer = () => {
-		stopWorkingTimer();
-		const tick = () => {
+	const startWorkingUpdates = () => {
+		stopWorkingUpdates();
+		stopWorkingRefresh = startWorkingRefresh(config.workingRefresh.mode, () => {
 			if (!sessionLifecycle.isCurrent() || !active) return;
 			requestFooterRender?.();
-		};
-		tick();
-		workingTimer = setInterval(tick, 250);
-		workingTimer.unref?.();
+		});
 	};
 
-	const stopWorkingTimer = () => {
-		if (workingTimer) {
-			clearInterval(workingTimer);
-			workingTimer = undefined;
-		}
+	const stopWorkingUpdates = () => {
+		stopWorkingRefresh?.();
+		stopWorkingRefresh = undefined;
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -242,7 +238,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
-		stopWorkingTimer();
+		stopWorkingUpdates();
 		if (active) {
 			uninstallUi(ctx);
 		}
@@ -257,12 +253,12 @@ export default function (pi: ExtensionAPI) {
 		peekTaskEpoch++;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
-		startWorkingTimer();
+		startWorkingUpdates();
 	});
 
 	pi.on("agent_end", (_event, _ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
-		stopWorkingTimer();
+		stopWorkingUpdates();
 		if (state.workingSince !== undefined) {
 			state.lastDoneIn = Date.now() - state.workingSince;
 			state.workingSince = undefined;
@@ -377,6 +373,7 @@ export default function (pi: ExtensionAPI) {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
 			const thinkingPeekLinesChanged = config.thinkingPeek.lines !== newConfig.thinkingPeek.lines;
+			const workingRefreshModeChanged = config.workingRefresh.mode !== newConfig.workingRefresh.mode;
 			saveConfig(newConfig);
 			config = newConfig;
 			if (newConfig.thinkingPeek.lines === 0 || !newConfig.enabled) {
@@ -390,6 +387,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (wheelScrollLinesChanged && active && editor) {
 				editor.setWheelScrollLines(newConfig.fullscreen.wheelScrollLines);
+			}
+			if (workingRefreshModeChanged && state.workingSince !== undefined) {
+				startWorkingUpdates();
 			}
 			if (lastCtx) {
 				pendingUiChange = getPendingUiChange(newConfig.enabled, active);

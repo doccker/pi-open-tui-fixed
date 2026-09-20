@@ -10,7 +10,14 @@ import {
 	type TUI,
 	Text,
 } from "@earendil-works/pi-tui";
-import type { CursorStyle, IconMode, OpenTuiConfig, SettingsLanguage, ThinkingPeekLines } from "./config.ts";
+import type {
+	CursorStyle,
+	IconMode,
+	OpenTuiConfig,
+	SettingsLanguage,
+	ThinkingPeekLines,
+	WorkingRefreshMode,
+} from "./config.ts";
 import {
 	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
 	normalizeFullscreenWheelScrollLines,
@@ -34,6 +41,7 @@ const COPY = {
 		labels: {
 			enabled: "Enabled",
 			thinkingPeek: "Thinking peek",
+			workingRefresh: "Working refresh",
 			language: "Language",
 			wheelScrollLines: "Mouse wheel speed",
 			cursorStyle: "Cursor style",
@@ -58,6 +66,7 @@ const COPY = {
 			on: "On",
 			off: "Off",
 			thinkingPeek: { off: "Off", one: "1 line", two: "2 lines" },
+			workingRefresh: { event: "Event-driven", realtime: "Realtime (250 ms)" },
 			languages: { en: "English", zh: "简体中文" },
 			wheelLines: (count: number) => `${count} ${count === 1 ? "line" : "lines"} / notch`,
 			wheelPrompt: (count: number) => `Wheel scroll lines per notch, 1-10 (current: ${count}). Enter: apply · Esc: cancel`,
@@ -72,6 +81,7 @@ const COPY = {
 		labels: {
 			enabled: "启用",
 			thinkingPeek: "思考预览",
+			workingRefresh: "工作状态刷新",
 			language: "语言",
 			wheelScrollLines: "鼠标滚轮速度",
 			cursorStyle: "光标样式",
@@ -96,6 +106,7 @@ const COPY = {
 			on: "开启",
 			off: "关闭",
 			thinkingPeek: { off: "关闭", one: "单行", two: "双行" },
+			workingRefresh: { event: "事件驱动", realtime: "实时（250 毫秒）" },
 			languages: { en: "English", zh: "简体中文" },
 			wheelLines: (count: number) => `每格 ${count} 行`,
 			wheelPrompt: (count: number) => `滚轮每格滚动行数（当前 ${count}，范围 1-10），输入后 Enter 应用 · Esc 取消`,
@@ -157,6 +168,14 @@ function setWheelScrollLines(config: OpenTuiConfig, raw: string): OpenTuiConfig 
 	};
 }
 
+function cycleWorkingRefreshMode(config: OpenTuiConfig): OpenTuiConfig {
+	const next: WorkingRefreshMode = config.workingRefresh.mode === "event" ? "realtime" : "event";
+	return {
+		...config,
+		workingRefresh: { mode: next },
+	};
+}
+
 function toggleTelemetry(config: OpenTuiConfig, key: keyof OpenTuiConfig["telemetry"]): OpenTuiConfig {
 	return {
 		...config,
@@ -183,6 +202,11 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 			currentValue: copy.values.wheelLines(config.fullscreen.wheelScrollLines),
 		},
 		{ id: "thinkingPeek", label: copy.labels.thinkingPeek, currentValue: formatThinkingPeekLines(config.thinkingPeek.lines, copy) },
+		{
+			id: "workingRefresh",
+			label: copy.labels.workingRefresh,
+			currentValue: copy.values.workingRefresh[config.workingRefresh.mode],
+		},
 	];
 }
 
@@ -244,6 +268,7 @@ function handleSettingChange(
 		if (itemId === "enabled") return toggleEnabled(config);
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "thinkingPeek") return cycleThinkingPeek(config);
+		if (itemId === "workingRefresh") return cycleWorkingRefreshMode(config);
 	}
 	if (tab === "icons") {
 		if (itemId === "mode") return cycleIconMode(config);

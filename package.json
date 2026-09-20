@@ -1,7 +1,7 @@
 {
-  "name": "pi-open-tui",
-  "version": "0.3.6",
-  "description": "A polished TUI for Pi coding agent: animated logo header, Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
+  "name": "pi-open-tui-fixed",
+  "version": "0.3.6-wwj.1",
+  "description": "A locally maintained pi-open-tui variant with scroll-stable event-driven working refresh.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -25,7 +25,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/settings-command.test.ts tests/fullscreen-scroll.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts",
+    "test": "node --test tests/settings-command.test.ts tests/fullscreen-scroll.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts tests/working-refresh.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "pi": {
