@@ -67,6 +67,7 @@ pi -e npm:pi-open-tui-fixed
 | --- | --- | --- |
 | 顶栏与设置语言 | 常规 → 界面 | 顶栏开启、英文 |
 | 工作状态刷新（`workingRefresh.mode`：`event` 或 `realtime`） | 常规 → 底栏 | 事件驱动 |
+| 标题显示 pid/sid（`terminalTitle.sessionIds`） | 常规 → 终端 | 关闭 |
 | 思考预览 | 常规 → 消息与工具 | 单行 |
 | 复制按钮 | 常规 → 消息与工具 | 开启，仅全屏模式 |
 | 工具视图 | 常规 → 消息与工具 | 原生 |
@@ -89,6 +90,10 @@ pi -e npm:pi-open-tui-fixed
 `event` 模式只在 Agent 与消息生命周期事件发生时刷新底栏，不启动上游每 250 毫秒执行一次的定时器，可避免模型工作期间的周期性底栏重绘干扰 macOS Terminal 回滚。耗时仍由时间戳计算，任务结束后的最终耗时保持准确，但两次事件之间可见计时可能暂时不动。
 
 `realtime` 模式恢复上游每 250 毫秒一次的周期刷新，仅建议在工作期间滚动稳定的终端中使用。
+
+### 终端标题
+
+开启**标题显示 pid/sid**（`terminalTitle.sessionIds`，默认关闭）后，终端窗口标题会追加 Pi 进程号与会话 ID，例如 `π - my-project · pid=18825 sid=01a1a71c-5b75-7509-b0f6-619e05d6c0cc`。`/name`、`/reload`、`/new`、`/resume` 之后后缀保持不变，关闭开关后立即消失。
 
 ## 单轮遥测
 

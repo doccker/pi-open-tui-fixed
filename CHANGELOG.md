@@ -5,6 +5,7 @@
 ### Fork differences
 
 - Keep the event-driven working refresh (`workingRefresh.mode`, default `event`) instead of the 250 ms footer timer, so terminal scrollback stays stable while the model works.
+- Add the opt-in `terminalTitle.sessionIds` setting that appends `pid=<pid> sid=<sessionId>` to the terminal window title.
 
 ## [0.4.3] - 2026-11-05
 

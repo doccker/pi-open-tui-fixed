@@ -485,6 +485,7 @@ test("normalizes invalid settings values", (t) => {
 		copyButtons: "no",
 		thinkingPeek: { lines: 9 },
 		workingRefresh: { mode: "invalid" },
+		terminalTitle: { sessionIds: "yes" },
 		toolView: { mode: "hidden", extensionTools: "yes", exclude: ["keep", 1, null] },
 		fullscreen: { wheelScrollLines: 10 },
 	}), "utf8");
@@ -496,6 +497,7 @@ test("normalizes invalid settings values", (t) => {
 	assert.equal(loaded.copyButtons, true);
 	assert.equal(loaded.thinkingPeek.lines, 1);
 	assert.equal(loaded.workingRefresh.mode, "event");
+	assert.equal(loaded.terminalTitle.sessionIds, false);
 	assert.deepEqual(loaded.toolView, { mode: "native", extensionTools: false, exclude: ["keep"] });
 	assert.equal("fullscreen" in loaded, true);
 });
@@ -512,6 +514,22 @@ test("configures event-driven working refresh by default", async () => {
 	settings.component.handleInput("\r");
 	assert.equal(settings.getConfig().workingRefresh.mode, "realtime");
 	assert.match(selectedLine(settings.component), /Realtime \(250 ms\)/);
+});
+
+test("toggles the terminal title pid/sid suffix from General settings", async () => {
+	const settings = await openSettings();
+	assert.equal(settings.getConfig().terminalTitle.sessionIds, false);
+
+	// ... → Working refresh → Title shows pid/sid
+	settings.press("\x1b[B", 8);
+	assert.match(selectedLine(settings.component), /Title shows pid\/sid\s+Off/);
+
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().terminalTitle.sessionIds, true);
+	assert.match(selectedLine(settings.component), /Title shows pid\/sid\s+On/);
+
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().terminalTitle.sessionIds, false);
 });
 
 test("cycles the thinking peek line count from General settings", async () => {

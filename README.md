@@ -67,6 +67,7 @@ Settings are stored in `open-tui.json` inside Pi's agent directory (default: `~/
 | --- | --- | --- |
 | Header and settings language | General → Interface | Header on, English |
 | Working refresh (`workingRefresh.mode`: `event` or `realtime`) | General → Footer | Event-driven |
+| Title shows pid/sid (`terminalTitle.sessionIds`) | General → Terminal | Off |
 | Thinking peek | General → Messages & tools | 1 line |
 | Copy buttons | General → Messages & tools | On, fullscreen only |
 | Tool view | General → Messages & tools | Native |
@@ -89,6 +90,10 @@ Enable **Footer in editor border** to move the two main rows into the editor's t
 `event` mode refreshes the footer at agent and message lifecycle boundaries without running the upstream 250 ms timer. This prevents periodic footer redraws from disrupting macOS Terminal scrollback while the model is working. Elapsed time is still calculated from timestamps and the final duration remains accurate, but the visible counter may pause between events.
 
 `realtime` mode restores the upstream 250 ms periodic refresh. Use it only in terminals where active scrollback remains stable.
+
+### Terminal title
+
+Enable **Title shows pid/sid** (`terminalTitle.sessionIds`, off by default) to append the Pi process id and session id to the terminal window title, for example `π - my-project · pid=18825 sid=01a1a71c-5b75-7509-b0f6-619e05d6c0cc`. The suffix is kept after `/name`, `/reload`, `/new`, and `/resume`, and disappears as soon as the setting is turned off.
 
 ## Turn telemetry
 

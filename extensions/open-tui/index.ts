@@ -9,6 +9,7 @@ import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
+import { createTerminalTitle } from "./terminal-title.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
 import { registerToolView } from "./tool-view.ts";
 import {
@@ -55,6 +56,14 @@ export default function (pi: ExtensionAPI) {
 	let copyButtons: ReturnType<typeof installCopyButtons> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 	const footerSegments = createFooterSegments(pi.events, () => requestFooterRender?.());
+	const terminalTitle = createTerminalTitle({
+		getTui: () => editor?.getTui(),
+		getInfo: () => lastCtx && {
+			cwd: lastCtx.sessionManager.getCwd(),
+			sessionId: lastCtx.sessionManager.getSessionId(),
+			sessionName: lastCtx.sessionManager.getSessionName(),
+		},
+	});
 
 	// thinking-peek state (rendered by Pi inside its hidden-thinking block)
 	const peek: PeekState = createPeekState();
@@ -144,6 +153,7 @@ export default function (pi: ExtensionAPI) {
 				isEnabled: () => config.copyButtons,
 			});
 			active = true;
+			terminalTitle.sync(config.terminalTitle.sessionIds);
 			if (requestFooterRender) footerSegments.activate();
 		}
 	};
@@ -151,6 +161,7 @@ export default function (pi: ExtensionAPI) {
 	const uninstallUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
 		if (active) {
+			terminalTitle.sync(false);
 			cleanupHeader?.();
 			cleanupFooter?.();
 			copyButtons?.cleanup();
@@ -397,6 +408,7 @@ export default function (pi: ExtensionAPI) {
 					: "open-tui settings apply for this session but could not be saved. Check configuration directory permissions and free space.", "warning");
 			}
 			config = newConfig;
+			if (active) terminalTitle.sync(newConfig.terminalTitle.sessionIds);
 			if (newConfig.thinkingPeek.lines === 0 || !newConfig.enabled) {
 				resetPeek();
 				clearPeekLabel(lastCtx);

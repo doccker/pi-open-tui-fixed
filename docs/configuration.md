@@ -38,6 +38,7 @@ Tab/Shift+Tab or ←/→ switches tabs; ↑/↓ or Page Up/Page Down moves betwe
 | `icons.mode` | `"auto"` | `"auto"`, `"nerd"`, `"unicode"`, or `"ascii"`; see [Icons](#icons) |
 | `thinkingPeek.lines` | `1` | `0` (off), `1`, or `2`; visible while Pi's Hide thinking setting is on and reasoning is streamed |
 | `workingRefresh.mode` | `"event"` | Fork-only. `"event"` refreshes the footer at agent and message lifecycle boundaries; `"realtime"` restores the upstream 250 ms timer |
+| `terminalTitle.sessionIds` | `false` | Fork-only. Appends ` · pid=<pid> sid=<sessionId>` to the terminal window title |
 | `toolView.mode` | `"native"` | `"native"` or `"compact"`; selected when Pi creates each tool row |
 | `toolView.extensionTools` | `false` | In compact mode, includes extension, MCP, and replacement tools |
 | `toolView.exclude` | `[]` | Exact tool names that keep native rendering, including built-ins; edited in the JSON file only |
@@ -133,6 +134,7 @@ Tab/Shift+Tab 或 ←/→ 切页，↑/↓ 或 Page Up/Page Down 移动，Enter/
 | `icons.mode` | `"auto"` | `"auto"`、`"nerd"`、`"unicode"` 或 `"ascii"`，见[图标](#图标) |
 | `thinkingPeek.lines` | `1` | `0`（关闭）、`1` 或 `2`；Pi 开启 Hide thinking 且模型输出推理时可见 |
 | `workingRefresh.mode` | `"event"` | 仅本 fork。`"event"` 在 Agent 与消息生命周期边界刷新底栏；`"realtime"` 恢复上游每 250 毫秒的定时刷新 |
+| `terminalTitle.sessionIds` | `false` | 仅本 fork。在终端窗口标题末尾追加 ` · pid=<pid> sid=<sessionId>` |
 | `toolView.mode` | `"native"` | `"native"` 或 `"compact"`，每条工具行创建时确定 |
 | `toolView.extensionTools` | `false` | 紧凑模式下包含扩展、MCP 和替换内置工具的扩展 |
 | `toolView.exclude` | `[]` | 保持原生渲染的完整工具名，可包含内置工具；仅在 JSON 文件中编辑 |
@@ -240,6 +242,9 @@ The complete default configuration is shared by both language references. Set `s
   },
   "workingRefresh": {
     "mode": "event"
+  },
+  "terminalTitle": {
+    "sessionIds": false
   },
   "toolView": {
     "mode": "native",

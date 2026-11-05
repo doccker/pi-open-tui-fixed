@@ -50,6 +50,7 @@ const COPY = {
 			extension: "Extension",
 			interface: "Interface",
 			messages: "Messages & tools",
+			terminal: "Terminal",
 			footer: "Footer",
 			icons: "Icons",
 			editor: "Editor",
@@ -68,6 +69,7 @@ const COPY = {
 			copyButtons: "Copy buttons",
 			thinkingPeek: "Thinking peek",
 			workingRefresh: "Working refresh",
+			terminalTitleIds: "Title shows pid/sid",
 			toolView: "Tool view",
 			extensionTools: "Compact extension tools",
 			language: "Language",
@@ -111,6 +113,7 @@ const COPY = {
 			extension: "扩展",
 			interface: "界面",
 			messages: "消息与工具",
+			terminal: "终端",
 			footer: "底栏",
 			icons: "图标",
 			editor: "输入框",
@@ -129,6 +132,7 @@ const COPY = {
 			copyButtons: "复制按钮",
 			thinkingPeek: "思考预览",
 			workingRefresh: "工作状态刷新",
+			terminalTitleIds: "标题显示 pid/sid",
 			toolView: "工具视图",
 			extensionTools: "紧凑显示扩展工具",
 			language: "语言",
@@ -261,6 +265,10 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingG
 				{ id: "workingRefresh", label: copy.labels.workingRefresh, currentValue: copy.values.workingRefresh[config.workingRefresh.mode] },
 			],
 		},
+		{
+			label: copy.sections.terminal,
+			items: [{ id: "terminalTitleIds", label: copy.labels.terminalTitleIds, currentValue: flag(config.terminalTitle.sessionIds) }],
+		},
 	];
 }
 
@@ -373,6 +381,9 @@ function handleSettingChange(
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "thinkingPeek") return cycleThinkingPeek(config);
 		if (itemId === "workingRefresh") return cycleWorkingRefreshMode(config);
+		if (itemId === "terminalTitleIds") {
+			return { ...config, terminalTitle: { sessionIds: !config.terminalTitle.sessionIds } };
+		}
 		if (itemId === "toolView") {
 			return { ...config, toolView: { ...config.toolView, mode: config.toolView.mode === "native" ? "compact" : "native" } };
 		}

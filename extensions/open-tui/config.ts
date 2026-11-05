@@ -47,6 +47,11 @@ export interface WorkingRefreshConfig {
 	mode: WorkingRefreshMode;
 }
 
+export interface TerminalTitleConfig {
+	/** Append `pid=<pid> sid=<sessionId>` to the terminal window title. */
+	sessionIds: boolean;
+}
+
 export interface ToolViewConfig {
 	mode: ToolViewMode;
 	/** In compact mode, also collapse tools that are not Pi's own built-ins. */
@@ -71,6 +76,7 @@ export interface OpenTuiConfig {
 	telemetry: TelemetryConfig;
 	thinkingPeek: ThinkingPeekConfig;
 	workingRefresh: WorkingRefreshConfig;
+	terminalTitle: TerminalTitleConfig;
 	toolView: ToolViewConfig;
 }
 
@@ -115,6 +121,9 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	},
 	workingRefresh: {
 		mode: "event",
+	},
+	terminalTitle: {
+		sessionIds: false,
 	},
 	toolView: {
 		mode: "native",
@@ -233,6 +242,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		} else if (config.workingRefresh.mode !== "event" && config.workingRefresh.mode !== "realtime") {
 			config.workingRefresh.mode = DEFAULT_CONFIG.workingRefresh.mode;
 		}
+		config.terminalTitle = normalizeFlags(config.terminalTitle, DEFAULT_CONFIG.terminalTitle);
 		config.toolView = normalizeToolView(config.toolView);
 		return config;
 	} catch (err) {
