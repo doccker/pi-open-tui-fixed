@@ -1,7 +1,8 @@
 import { basename } from "node:path";
 
+// Matches official Pi's `π` title only. Distributions with a custom `piConfig.name` briefly show `π`
+// when the setting is toggled, until Pi next updates the title.
 const APP_TITLE = "π";
-const SUFFIX_PATTERN = / · pid=\d+ sid=\S+$/;
 
 export interface TitleTerminal {
 	setTitle(title: string): void;
@@ -23,9 +24,10 @@ export function formatBaseTitle(info: Pick<SessionTitleInfo, "cwd" | "sessionNam
 	return info.sessionName ? `${APP_TITLE} - ${info.sessionName} - ${cwdName}` : `${APP_TITLE} - ${cwdName}`;
 }
 
-/** Replaces any earlier suffix, so repeated calls never stack suffixes. */
+/** Appends the suffix unless the title already ends with this exact pid/sid suffix. */
 export function appendSessionIds(title: string, pid: number, sessionId: string): string {
-	return `${title.replace(SUFFIX_PATTERN, "")} · pid=${pid} sid=${sessionId}`;
+	const suffix = ` · pid=${pid} sid=${sessionId}`;
+	return title.endsWith(suffix) ? title : `${title}${suffix}`;
 }
 
 /**

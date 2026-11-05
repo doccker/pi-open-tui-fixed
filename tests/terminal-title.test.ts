@@ -60,7 +60,14 @@ test("does not stack suffixes", () => {
 	installTerminalTitle(terminal, () => session());
 	terminal.setTitle(`π - base-info${suffix("sid-1")}`);
 	assert.equal(terminal.last, `π - base-info${suffix("sid-1")}`);
-	assert.equal(appendSessionIds(appendSessionIds("t", 1, "a"), 1, "b"), "t · pid=1 sid=b");
+	assert.equal(appendSessionIds(appendSessionIds("t", 1, "a"), 1, "a"), "t · pid=1 sid=a");
+});
+
+test("keeps an original title that merely looks like a suffix", () => {
+	assert.equal(
+		appendSessionIds("π - project · pid=123 sid=notes", 999, "current"),
+		"π - project · pid=123 sid=notes · pid=999 sid=current",
+	);
 });
 
 test("leaves titles untouched when there is no session", () => {

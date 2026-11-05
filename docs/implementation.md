@@ -10,7 +10,7 @@ Feature examples and everyday controls are in the [README](../README.md). All se
 
 [index.ts](../extensions/open-tui/index.ts) connects Pi events to the UI. At session start it loads settings and, when enabled in a TUI context, installs the footer, editor decoration, Copy-button integration, and the header if `header` is also enabled. Tool renderers are registered separately; configuration is loaded early when Pi rebuilds a resumed transcript before `session_start`.
 
-The working timer requests a redraw every 250 ms while an agent run is active. Git and runtime reads capture a session generation; their results are discarded if the session has changed or shut down. Shutdown stops the timer, deactivates footer contributions, and removes the installed UI. Compact tool activity timers are stopped when execution ends or the session shuts down. See [session-lifecycle.ts](../extensions/open-tui/session-lifecycle.ts) for the generation guard.
+By default (`workingRefresh.mode = event`) the working state redraws only on events; in `realtime` mode a timer requests a redraw every 250 ms while an agent run is active. Git and runtime reads capture a session generation; their results are discarded if the session has changed or shut down. Shutdown stops the timer, deactivates footer contributions, and removes the installed UI. Compact tool activity timers are stopped when execution ends or the session shuts down. See [session-lifecycle.ts](../extensions/open-tui/session-lifecycle.ts) for the generation guard.
 
 - [git.ts](../extensions/open-tui/git.ts) parses `git status --porcelain=v1 --branch` and reads commit, tag, and stash information as requested. Each Git command has a two-second timeout. A failed status read produces an empty Git state. Turning off both branch and status display avoids the refresh; `gitCommit` only adds a tag to the detached branch display.
 - [runtime.ts](../extensions/open-tui/runtime.ts) chooses the first matching definition from its ordered list of 50+ runtimes and environments. It checks project files, folders, extensions, and environment variables in the working directory. It reports the locally executed version command's result, not a declared dependency version. Version commands have a 2.5-second timeout; unavailable versions leave the runtime symbol visible. Results are cached by directory and runtime, with a fingerprint of relevant files and environment values.
@@ -101,7 +101,7 @@ Some integrations use Pi component internals: Copy buttons check required Markdo
 
 [index.ts](../extensions/open-tui/index.ts) 将 Pi 事件接入界面。会话开始时读取配置；在已启用的 TUI 环境中安装底栏、编辑器装饰和复制按钮，并在 `header` 也开启时安装顶栏。工具渲染器单独注册；恢复会话时，Pi 可能在 `session_start` 之前重建记录，因此会提前读取配置。
 
-Agent 运行期间，工作计时器每 250 毫秒请求一次重绘。Git 和运行环境读取会记录发起时的会话代次，如果会话已切换或关闭，结果会被丢弃。关闭会话会停止计时器、停用底栏贡献并移除已安装的界面；紧凑工具的动画计时器会在执行结束或会话关闭时停止。代次保护见 [session-lifecycle.ts](../extensions/open-tui/session-lifecycle.ts)。
+默认（`workingRefresh.mode = event`）只在事件发生时重绘工作状态；`realtime` 模式下，Agent 运行期间计时器才每 250 毫秒请求一次重绘。Git 和运行环境读取会记录发起时的会话代次，如果会话已切换或关闭，结果会被丢弃。关闭会话会停止计时器、停用底栏贡献并移除已安装的界面；紧凑工具的动画计时器会在执行结束或会话关闭时停止。代次保护见 [session-lifecycle.ts](../extensions/open-tui/session-lifecycle.ts)。
 
 - [git.ts](../extensions/open-tui/git.ts) 解析 `git status --porcelain=v1 --branch`，按需读取提交、标签和 stash。每条 Git 命令的超时为两秒，状态读取失败时返回空 Git 状态。分支和状态显示都关闭时跳过刷新；`gitCommit` 仅为分离 HEAD 的分支显示追加标签。
 - [runtime.ts](../extensions/open-tui/runtime.ts) 从按顺序排列的 50 多种运行环境定义中选择第一个匹配项，检查工作目录中的项目文件、目录、扩展名和环境变量。版本来自本地实际执行的版本命令，不是依赖声明中的版本。命令超时为 2.5 秒，版本不可用时仍显示环境标记。结果按目录和环境缓存，并用相关文件与环境变量构成指纹。
