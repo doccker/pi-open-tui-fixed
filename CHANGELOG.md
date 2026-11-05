@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-05
+
+### Fork differences
+
+- Footer now merges the live sub-agent tok/s into its display, consuming the `delegate:tps` event.
+- Footer-segments tests now assert against the actual model instead of a hard-coded one.
+
 ## [0.5.0] - 2026-11-05
 
 ### Breaking Changes
