@@ -334,7 +334,9 @@ for (const contributorFirst of [false, true]) {
 			});
 			const compactLine = stripAnsi(footer(usedWidth + 6)[1]!);
 			assert.ok(compactLine.endsWith("PID"), "compact text fits without sacrificing built-in content");
-			assert.ok(compactLine.includes("unknown"));
+			// The host resolves its model from the machine's available providers; with none it shows "Unknown".
+			const model = current().ctx!.model;
+			assert.ok(compactLine.includes(model ? (model.name ?? model.id) : "Unknown"));
 			assert.ok(compactLine.includes("$0.000"));
 			const narrowWidth = usedWidth;
 			assert.ok(!stripAnsi(footer(narrowWidth)[1]!).includes("PID"), "default priority yields to model and statistics");
