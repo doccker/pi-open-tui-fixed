@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
+### Breaking Changes
+
+- Require Pi 1.5.0 or later.
+- `fullscreen.wheelScrollLines` has been removed; wheel speed now follows Pi's own settings. The old config key is still accepted without error but no longer takes effect.
+
+### Upstream sync
+
+- Sync upstream pi-open-tui 0.4.3, including fixes such as the cwd Chinese-name infinite loop; see the upstream CHANGELOG sections 0.3.7–0.4.3 for details.
+
 ### Fork differences
 
 - Keep the event-driven working refresh (`workingRefresh.mode`, default `event`) instead of the 250 ms footer timer, so terminal scrollback stays stable while the model works.
