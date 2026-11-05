@@ -1,20 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	AssistantMessageComponent,
+	createEventBus,
 	type ExtensionAPI,
 	type ExtensionContext,
+	initTheme,
 	type MessageUpdateEvent,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { ScrollView, Text } from "@earendil-works/pi-tui";
+import { ScrollView } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/open-tui/config.ts";
 import openTui from "../extensions/open-tui/index.ts";
-import { formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/open-tui/telemetry.ts";
+import { estimateDeltaTokens, formatTurnTelemetry, TurnTelemetryTracker } from "../extensions/open-tui/telemetry.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -64,9 +66,44 @@ function startTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, tur
 
 function endTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, turnIndex = 0) {
 	tracker.handle({ type: "message_end", message });
-	return tracker.handle({ type: "turn_end", turnIndex, message, toolResults: [] });
+	return tracker.handle(turnEnd(message, turnIndex));
 }
 
+function turnEnd(message: AssistantMessage, turnIndex = 0) {
+	return {
+		type: "turn_end" as const,
+		turnIndex,
+		message,
+		toolResults: [],
+		messageEntryId: "",
+		toolResultEntryIds: [],
+		entries: [],
+		continue: false,
+		context: {
+			contextEntries: [],
+			contextMessages: [],
+			llmMessages: [],
+			pendingMessages: [],
+			canContinue: false,
+		},
+		outcome: "completed" as const,
+	};
+}
+
+function measure(updates: readonly number[], endMs = 800, output = 20) {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const message = makeMessage(output);
+	startTurn(tracker, message);
+	for (const timestamp of updates) {
+		now = timestamp;
+		tracker.handle(update(message));
+	}
+	now = endMs;
+	return endTurn(tracker, message)!;
+}
+
+// Turn timing and usage.
 test("uses total output over full generation time", () => {
 	let now = 0;
 	const tracker = new TurnTelemetryTracker(() => now);
@@ -115,7 +152,7 @@ test("normalizes invalid usage without breaking turn telemetry", () => {
 		now += 100;
 		tracker.handle({ type: "message_end", message });
 	}
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message: messages[1]!, toolResults: [] })!;
+	const telemetry = tracker.handle(turnEnd(messages[1]!))!;
 
 	assert.equal(telemetry.inputTokens, 50);
 	assert.equal(telemetry.outputTokens, 20);
@@ -133,7 +170,7 @@ test("measures non-streamed responses from turn start", () => {
 	now = 5_000;
 	tracker.handle({ type: "message_start", message });
 	tracker.handle({ type: "message_end", message });
-	const telemetry = tracker.handle({ type: "turn_end", turnIndex: 0, message, toolResults: [] })!;
+	const telemetry = tracker.handle(turnEnd(message))!;
 
 	assert.equal(telemetry.tps, 4);
 	assert.equal(telemetry.ttftMs, 5_000);
@@ -190,35 +227,13 @@ test("returns no TPS without output or generation time", () => {
 	];
 
 	for (const scenario of scenarios) {
-		let now = 0;
-		const tracker = new TurnTelemetryTracker(() => now);
-		const message = makeMessage(scenario.output);
-		startTurn(tracker, message);
-		for (const timestamp of scenario.updates) {
-			now = timestamp;
-			tracker.handle(update(message));
-		}
-		now = scenario.endMs;
-		const telemetry = endTurn(tracker, message);
+		const telemetry = measure(scenario.updates, scenario.endMs, scenario.output);
 		assert.equal(telemetry?.tps, null, scenario.name);
 		assert.equal(telemetry?.outputTokens, scenario.output, scenario.name);
 	}
 });
 
 test("keeps stalls in delivery time so they lower TPS", () => {
-	function measure(updates: number[], endMs: number) {
-		let now = 0;
-		const tracker = new TurnTelemetryTracker(() => now);
-		const message = makeMessage();
-		startTurn(tracker, message);
-		for (const timestamp of updates) {
-			now = timestamp;
-			tracker.handle(update(message));
-		}
-		now = endMs;
-		return endTurn(tracker, message)!;
-	}
-
 	const uninterrupted = measure([100, 200, 300], 800);
 	const stalled = measure([100, 1200, 2300, 2400, 3500], 3600);
 
@@ -257,19 +272,6 @@ test("only meaningful stream deltas define TTFT and stalls", () => {
 });
 
 test("is stable across chunk counts", () => {
-	function measure(updateTimes: number[]) {
-		let now = 0;
-		const tracker = new TurnTelemetryTracker(() => now);
-		const message = makeMessage();
-		startTurn(tracker, message);
-		for (const timestamp of updateTimes) {
-			now = timestamp;
-			tracker.handle(update(message));
-		}
-		now = 800;
-		return endTurn(tracker, message)!;
-	}
-
 	assert.equal(measure([100, 700]).tps, 25);
 	assert.equal(measure([100, 200, 300, 400, 500, 700]).tps, 25);
 });
@@ -288,6 +290,7 @@ test("uses full generation time for high rates", () => {
 	assert.equal(endTurn(tracker, message)?.tps, 10_000);
 });
 
+// Aggregation across assistant messages and agent turns.
 test("excludes tool gaps between assistant messages", () => {
 	function measure(toolGapMs: number) {
 		let now = 0;
@@ -313,7 +316,7 @@ test("excludes tool gaps between assistant messages", () => {
 		}
 		now = secondStartMs + 400;
 		endTurn(tracker, second, 1);
-		return tracker.handle({ type: "agent_settled" })!;
+		return tracker.handle({ type: "agent_settled", aborted: false })!;
 	}
 
 	assert.equal(measure(0).tps, 50);
@@ -340,7 +343,7 @@ test("includes every message's tokens and generation time", () => {
 	}
 	now = 700;
 	endTurn(tracker, measured, 1);
-	const telemetry = tracker.handle({ type: "agent_settled" })!;
+	const telemetry = tracker.handle({ type: "agent_settled", aborted: false })!;
 
 	assert.equal(telemetry.tps, 35.7);
 	assert.equal(telemetry.measurementMs, 700);
@@ -361,7 +364,7 @@ test("counts cache-write tokens as input, matching /session's uncached figure", 
 	tracker.handle(update(message));
 	now = 150;
 	endTurn(tracker, message);
-	const telemetry = tracker.handle({ type: "agent_settled" })!;
+	const telemetry = tracker.handle({ type: "agent_settled", aborted: false })!;
 
 	assert.equal(telemetry.inputTokens, 27099);
 	assert.equal(telemetry.cacheReadTokens, 5000);
@@ -403,7 +406,7 @@ test("aggregates all output and generation time across an agent run", () => {
 	now = 1_600;
 	endTurn(tracker, second, 2);
 	now = 1_700;
-	const telemetry = tracker.handle({ type: "agent_settled" })!;
+	const telemetry = tracker.handle({ type: "agent_settled", aborted: false })!;
 
 	assert.equal(telemetry.tps, 37.9);
 	assert.equal(telemetry.measurementMs, 1_450);
@@ -413,6 +416,7 @@ test("aggregates all output and generation time across an agent run", () => {
 	assert.equal(telemetry.rateUsdPerMTokens, 4);
 });
 
+// Extension lifecycle and thinking preview integration.
 test("open-tui notifies once after a complete agent run", () => {
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void>>();
 	const notifications: string[] = [];
@@ -421,11 +425,15 @@ test("open-tui notifies once after a complete agent run", () => {
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 		},
 		registerCommand() {},
+		registerToolRenderer() {},
+		registerMarkdownTransformer() {},
+		events: createEventBus(),
 		getThinkingLevel: () => "off",
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		hasUI: true,
 		mode: "tui",
+		isIdle: () => false,
 		ui: { theme, notify: (message: string) => notifications.push(message) },
 	} as unknown as ExtensionContext;
 	const emit = (event: string, payload: unknown) => {
@@ -448,7 +456,9 @@ test("open-tui notifies once after a complete agent run", () => {
 });
 
 test("open-tui keeps a bounded peek scoped to the current assistant", async () => {
-	const effectiveWidth = 85;
+	const terminalWidth = 120;
+	// pi-sidebar renders the transcript next to a 36-column sidebar without changing terminal.columns.
+	const transcriptWidth = terminalWidth - 36;
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void | Promise<void>>>();
 	const globalLabelUpdates: Array<string | undefined> = [];
 	const thought = "x".repeat(200);
@@ -464,10 +474,11 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		(component as unknown as { hiddenThinkingLabel: string }).hiddenThinkingLabel;
 	const tui = {
 		mode: "fullscreen",
-		terminal: { columns: effectiveWidth, write() {} },
+		terminal: { columns: terminalWidth, rows: 24, write() {} },
 		children: [{ children: thinkingComponents }],
 		getShowHardwareCursor: () => false,
 		setShowHardwareCursor() {},
+		invalidate() {},
 		requestRender() {},
 	};
 	const pi = {
@@ -475,18 +486,25 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 		},
 		registerCommand() {},
+		registerToolRenderer() {},
+		registerMarkdownTransformer() {},
+		events: createEventBus(),
 		getThinkingLevel: () => "high",
 	} as unknown as ExtensionAPI;
+	let editorFactory: unknown;
 	const ctx = {
 		hasUI: true,
 		mode: "tui",
+		isIdle: () => false,
 		cwd: process.cwd(),
 		ui: {
 			theme,
 			notify() {},
 			setHeader() {},
 			setFooter() {},
+			getEditorComponent: () => editorFactory,
 			setEditorComponent(factory?: unknown) {
+				editorFactory = factory;
 				if (typeof factory === "function") {
 					factory(tui, { borderColor: (text: string) => text }, { matches: () => false });
 				}
@@ -504,9 +522,19 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 	const previousColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
 	const agentDir = await mkdtemp(join(tmpdir(), "open-tui-peek-"));
 	process.env.PI_CODING_AGENT_DIR = agentDir;
+	await writeFile(
+		join(agentDir, "open-tui.json"),
+		JSON.stringify({ ...DEFAULT_CONFIG, thinkingPeek: { lines: 2 } }),
+		"utf8",
+	);
+	initTheme();
+	for (const component of thinkingComponents) component.updateContent(assistant as unknown as AssistantMessage);
+	// Rows of the hidden-thinking block, without the leading Spacer.
+	const renderPeekRows = (width: number) =>
+		new ScrollView(thinkingComponents[1]!, { scrollbar: "always" }).render(width).length - 1;
 
 	try {
-		Object.defineProperty(process.stdout, "columns", { configurable: true, value: 120 });
+		Object.defineProperty(process.stdout, "columns", { configurable: true, value: terminalWidth });
 		openTui(pi);
 		await emit("session_start", { type: "session_start" });
 		await emit("agent_start", { type: "agent_start" });
@@ -517,20 +545,20 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 			message: assistant,
 			assistantMessageEvent: { type: "thinking_delta", delta: assistant.content[0]!.thinking },
 		});
+		assert.equal(renderPeekRows(transcriptWidth), 2, "the peek rows must fit the sidebar-narrowed transcript");
 		const currentLabel = getThinkingLabel(thinkingComponents[1]!);
-		assert.ok(currentLabel);
+		assert.match(currentLabel, /think/);
 		assert.equal(getThinkingLabel(thinkingComponents[0]!), "Thinking...");
-		assert.equal(
-			new ScrollView(new Text(currentLabel, 1, 0), { scrollbar: "always" }).render(effectiveWidth).length,
-			1,
-			"the peek row must fit the narrowed fullscreen transcript",
-		);
+		assert.equal(renderPeekRows(terminalWidth), 2, "the peek must rebuild when the transcript width changes");
+		assert.notEqual(getThinkingLabel(thinkingComponents[1]!), currentLabel);
+		assert.equal(renderPeekRows(transcriptWidth), 2);
 		assistant.content[0]!.thinking += "y";
 		await emit("message_update", {
 			type: "message_update",
 			message: assistant,
 			assistantMessageEvent: { type: "thinking_delta", delta: "y" },
 		});
+		renderPeekRows(transcriptWidth);
 		const streamedLabel = getThinkingLabel(thinkingComponents[1]!);
 		assert.notEqual(streamedLabel, currentLabel, "each thinking delta must update the label immediately");
 
@@ -554,4 +582,68 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		await rm(agentDir, { recursive: true, force: true });
 	}
+});
+
+// Live throughput and text estimates.
+test("estimates CJK at one token per character and Latin at four characters per token", () => {
+	assert.equal(estimateDeltaTokens("abcdefgh"), 2);
+	assert.equal(estimateDeltaTokens("你好世界"), 4);
+	assert.equal(estimateDeltaTokens("こんにちは안녕"), 7);
+	assert.equal(estimateDeltaTokens("ab你好"), 2.5);
+});
+
+test("live TPS tracks the trailing window of the streaming message", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	const message = makeMessage();
+	const live = () => tracker.getLiveTps()?.tps;
+	assert.equal(tracker.getLiveTps(), null);
+	startTurn(tracker, message);
+	assert.equal(tracker.getLiveTps(), null);
+
+	// First chunk after TTFT is only the baseline, so its burst is not counted.
+	now = 1000;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(400), partial: message }));
+	assert.equal(tracker.getLiveTps(), null);
+
+	// 10 tokens every 100ms = 100 tok/s, across text, thinking, and tool-call deltas.
+	const types = ["text_delta", "thinking_delta", "toolcall_delta"] as const;
+	for (let i = 1; i <= 30; i++) {
+		now = 1000 + i * 100;
+		tracker.handle(update(message, { type: types[i % 3]!, contentIndex: 0, delta: "x".repeat(40), partial: message }));
+	}
+	assert.deepEqual(tracker.getLiveTps(), { tps: 100, stale: false });
+
+	// A 2s window at 10 tok/s after the fast burst only reflects the slow pace.
+	for (let i = 1; i <= 25; i++) {
+		now = 4000 + i * 100;
+		tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "xxxx", partial: message }));
+	}
+	assert.ok(Math.abs(live()! - 10) < 1, `expected ~10, got ${live()}`);
+
+	// Stall: no deltas, the rate decays, and reads zero once the window holds no output.
+	const beforeStall = live()!;
+	now += 1000;
+	const decayed = live()!;
+	assert.ok(decayed > 0 && decayed < beforeStall);
+	now += 1000;
+	assert.equal(live(), 0);
+	now -= 1000;
+
+	// Between messages (tool execution, next TTFT) the last rate stays as stale.
+	tracker.handle({ type: "message_end", message });
+	assert.deepEqual(tracker.getLiveTps(), { tps: decayed, stale: true });
+	endTurn(tracker, message);
+	startTurn(tracker, message, 1);
+	now += 100;
+	tracker.handle(update(message));
+	assert.deepEqual(tracker.getLiveTps(), { tps: decayed, stale: true });
+	now += 100;
+	tracker.handle(update(message, { type: "text_delta", contentIndex: 0, delta: "x".repeat(20), partial: message }));
+	assert.deepEqual(tracker.getLiveTps(), { tps: 50, stale: false });
+
+	// The run is over: nothing carries into the next one.
+	endTurn(tracker, message, 1);
+	tracker.handle({ type: "agent_settled", aborted: false });
+	assert.equal(tracker.getLiveTps(), null);
 });

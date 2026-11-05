@@ -23,13 +23,15 @@
   "license": "MIT",
   "files": [
     "extensions/",
+    "docs/",
     "assets/",
+    "CHANGELOG.md",
     "README.md",
     "README.zh-CN.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/settings-command.test.ts tests/fullscreen-scroll.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts tests/working-refresh.test.ts",
+    "test": "node --test tests/settings-command.test.ts tests/footer.test.ts tests/footer-protocol.test.ts tests/footer-segments.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts tests/tool-view.test.ts tests/copy-buttons.test.ts tests/copy-markdown.test.ts tests/working-refresh.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "pi": {
@@ -39,9 +41,9 @@
     "image": "https://raw.githubusercontent.com/doccker/pi-open-tui-fixed/main/assets/preview_dashboard_1.png"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.81",
-    "@earendil-works/pi-ai": ">=0.81",
-    "@earendil-works/pi-tui": ">=0.81"
+    "@earendil-works/pi-ai": ">=1.5.0",
+    "@earendil-works/pi-coding-agent": ">=1.5.0",
+    "@earendil-works/pi-tui": ">=1.5.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -55,17 +57,13 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.5.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0"
   },
-  "allowScripts": {
-    "protobufjs@7.6.5": true,
-    "protobufjs@7.6.4": true,
-    "@google/genai@1.52.0": true,
-    "koffi@2.16.2": true,
-    "tree-sitter-bash@0.25.1": true
+  "dependencies": {
+    "diff": "^9.0.0"
   }
 }

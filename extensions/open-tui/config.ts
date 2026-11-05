@@ -1,16 +1,13 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import {
-	DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
-	normalizeFullscreenWheelScrollLines,
-} from "./fullscreen-scroll.ts";
 import type { IconMode } from "./icons.ts";
 
 export type SettingsLanguage = "en" | "zh";
 export type CursorStyle = "block" | "bar" | "underline";
 export type ThinkingPeekLines = 0 | 1 | 2;
 export type WorkingRefreshMode = "event" | "realtime";
+export type ToolViewMode = "native" | "compact";
 
 export type { IconMode } from "./icons.ts";
 
@@ -25,7 +22,11 @@ export interface FooterSegments {
 	context: boolean;
 	tokens: boolean;
 	cost: boolean;
+	liveTps: boolean;
+	extensionSegments: boolean;
 	extensionStatuses: boolean;
+	capitalizeProviderName: boolean;
+	nerdIconSpacing: boolean;
 }
 
 export interface TelemetryConfig {
@@ -46,15 +47,23 @@ export interface WorkingRefreshConfig {
 	mode: WorkingRefreshMode;
 }
 
-export interface FullscreenConfig {
-	wheelScrollLines: number;
+export interface ToolViewConfig {
+	mode: ToolViewMode;
+	/** In compact mode, also collapse tools that are not Pi's own built-ins. */
+	extensionTools: boolean;
+	/** Tool names that always keep their native rendering. */
+	exclude: string[];
 }
 
 export interface OpenTuiConfig {
 	enabled: boolean;
+	/** Override Pi's header with the open-tui header. When false, the header slot is left to Pi or another extension. */
+	header: boolean;
+	inlineFooter: boolean;
+	/** Clickable `Copy` labels on code blocks and user messages (fullscreen mode only). */
+	copyButtons: boolean;
 	settingsLanguage: SettingsLanguage;
 	cursorStyle: CursorStyle;
-	fullscreen: FullscreenConfig;
 	icons: {
 		mode: IconMode;
 	};
@@ -62,15 +71,16 @@ export interface OpenTuiConfig {
 	telemetry: TelemetryConfig;
 	thinkingPeek: ThinkingPeekConfig;
 	workingRefresh: WorkingRefreshConfig;
+	toolView: ToolViewConfig;
 }
 
 export const DEFAULT_CONFIG: OpenTuiConfig = {
 	enabled: true,
+	header: true,
+	inlineFooter: false,
+	copyButtons: true,
 	settingsLanguage: "en",
 	cursorStyle: "block",
-	fullscreen: {
-		wheelScrollLines: DEFAULT_FULLSCREEN_WHEEL_SCROLL_LINES,
-	},
 	icons: {
 		mode: "auto",
 	},
@@ -85,7 +95,11 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		context: true,
 		tokens: true,
 		cost: true,
+		liveTps: true,
+		extensionSegments: true,
 		extensionStatuses: true,
+		capitalizeProviderName: true,
+		nerdIconSpacing: false,
 	},
 	telemetry: {
 		enabled: true,
@@ -102,6 +116,11 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	workingRefresh: {
 		mode: "event",
 	},
+	toolView: {
+		mode: "native",
+		extensionTools: false,
+		exclude: [],
+	},
 };
 
 export function getConfigPath(): string {
@@ -111,6 +130,29 @@ export function getConfigPath(): string {
 
 function normalizeThinkingPeekLines(value: unknown): ThinkingPeekLines {
 	return value === 0 || value === 1 || value === 2 ? value : DEFAULT_CONFIG.thinkingPeek.lines;
+}
+
+function normalizeToolView(value: unknown): ToolViewConfig {
+	const source = typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Partial<Record<keyof ToolViewConfig, unknown>>)
+		: {};
+	return {
+		mode: source.mode === "compact" ? "compact" : DEFAULT_CONFIG.toolView.mode,
+		extensionTools: source.extensionTools === true,
+		exclude: Array.isArray(source.exclude) ? source.exclude.filter((name): name is string => typeof name === "string") : [],
+	};
+}
+
+const ICON_MODES: IconMode[] = ["auto", "nerd", "unicode", "ascii"];
+
+// Non-boolean flags (e.g. "false" strings) fall back to defaults instead of reading as truthy.
+function normalizeFlags<T extends object>(value: unknown, defaults: T): T {
+	const source = typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+	const result: Record<string, unknown> = { ...source };
+	for (const [key, fallback] of Object.entries(defaults)) {
+		if (typeof result[key] !== "boolean") result[key] = fallback;
+	}
+	return result as T;
 }
 
 function deepMerge<T>(base: T, override: unknown): T {
@@ -158,16 +200,29 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		const raw = readFileSync(path, "utf8");
 		const parsed: unknown = JSON.parse(raw);
 		const config = deepMerge(DEFAULT_CONFIG, parsed);
+		if (typeof config.enabled !== "boolean") {
+			config.enabled = DEFAULT_CONFIG.enabled;
+		}
+		if (typeof config.header !== "boolean") {
+			config.header = DEFAULT_CONFIG.header;
+		}
+		if (typeof config.inlineFooter !== "boolean") {
+			config.inlineFooter = DEFAULT_CONFIG.inlineFooter;
+		}
+		if (typeof config.copyButtons !== "boolean") {
+			config.copyButtons = DEFAULT_CONFIG.copyButtons;
+		}
+		config.footerSegments = normalizeFlags(config.footerSegments, DEFAULT_CONFIG.footerSegments);
+		config.telemetry = normalizeFlags(config.telemetry, DEFAULT_CONFIG.telemetry);
+		if (typeof config.icons !== "object" || config.icons === null || !ICON_MODES.includes(config.icons.mode)) {
+			config.icons = structuredClone(DEFAULT_CONFIG.icons);
+		}
 		if (config.settingsLanguage !== "en" && config.settingsLanguage !== "zh") {
 			config.settingsLanguage = DEFAULT_CONFIG.settingsLanguage;
 		}
 		if (config.cursorStyle !== "block" && config.cursorStyle !== "bar" && config.cursorStyle !== "underline") {
 			config.cursorStyle = DEFAULT_CONFIG.cursorStyle;
 		}
-		config.fullscreen.wheelScrollLines = normalizeFullscreenWheelScrollLines(
-			config.fullscreen.wheelScrollLines,
-			DEFAULT_CONFIG.fullscreen.wheelScrollLines,
-		);
 		if (typeof config.thinkingPeek !== "object" || config.thinkingPeek === null || Array.isArray(config.thinkingPeek)) {
 			config.thinkingPeek = structuredClone(DEFAULT_CONFIG.thinkingPeek);
 		} else {
@@ -178,6 +233,7 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		} else if (config.workingRefresh.mode !== "event" && config.workingRefresh.mode !== "realtime") {
 			config.workingRefresh.mode = DEFAULT_CONFIG.workingRefresh.mode;
 		}
+		config.toolView = normalizeToolView(config.toolView);
 		return config;
 	} catch (err) {
 		notify?.(`open-tui config parse error: ${err instanceof Error ? err.message : String(err)}`, "warning");
@@ -185,13 +241,14 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 	}
 }
 
-export function saveConfig(config: OpenTuiConfig): void {
+export function saveConfig(config: OpenTuiConfig): boolean {
 	const path = getConfigPath();
 	try {
 		const agentDir = getAgentDir();
 		if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
 		writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+		return true;
 	} catch {
-		// ponytail: silent fallback — config save is best-effort
+		return false;
 	}
 }

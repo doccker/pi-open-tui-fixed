@@ -1,5 +1,7 @@
 # pi-open-tui
 
+[![omp status](https://omppackages.com/badge/pi-open-tui.svg)](https://omppackages.com/packages/pi-open-tui)
+
 **English** | [简体中文](./README.zh-CN.md)
 
 A locally maintained variant of [pi-open-tui](https://github.com/OldSuns/pi-open-tui) for the [Pi](https://pi.dev) coding agent. It keeps the upstream interface while defaulting working-state updates to a scroll-stable, event-driven mode.
@@ -9,19 +11,21 @@ A locally maintained variant of [pi-open-tui](https://github.com/OldSuns/pi-open
 ## Highlights
 
 - **Pi header** with model, thinking level, working directory, and useful slash-command hints
-- **Responsive footer** with Git state, detected runtime, context usage, token counts, cost, and extension status
-- **Framed editor** with block, bar, and underline cursor styles
-- **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
-- **Turn telemetry** for TPS, time to first token (TTFT), duration, stalls, tokens, and list-price rate
-- **Thinking peek**: an inline ticker replaces Pi's hidden `Thinking...` label with the tail of the model's reasoning while it works
-- **Interactive settings** through `/open-tui`, available in English and Simplified Chinese
-- **Version-guarded Pi compatibility shim**: fullscreen wheel speed falls back to Pi's default if its runtime support changes
+- **Responsive footer** with Git state, detected runtime, context usage, tokens, cost, and extension status
+- **Framed editor** with block, bar, and underline cursors, preserving compatible editors from other extensions
+- **Project awareness** for 50+ runtimes and detailed Git state, including ahead/behind, staged, modified, untracked, stash, and detached HEAD
+- **Turn telemetry** with generation speed, time to first token, duration, stalls, tokens, and cost rate
+- **Thinking peek** with a live preview of hidden reasoning while the model works
+- **Compact tool view** with edit/write previews and optional support for extension and MCP tools
+- **Fullscreen Copy buttons** for code blocks and user messages
+- **Interactive settings** in English and Simplified Chinese through `/open-tui`
 
 ## Requirements
 
-- Pi 0.80 or later
+- Pi 1.5.0 or later
+- Node.js 22.19.0 or later (Pi's minimum)
 - A terminal with UTF-8 and color support
-- A [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon set (optional; ASCII icons are built in)
+- A [Nerd Font](https://www.nerdfonts.com/font-downloads) for the full icon set (optional; Unicode and ASCII modes are available)
 
 ## Install
 
@@ -47,78 +51,38 @@ Do not load this variant and the upstream npm package together because both regi
 
 ## Font and icons
 
-Download any patched font from the official [Nerd Fonts downloads page](https://www.nerdfonts.com/font-downloads) or [latest GitHub release](https://github.com/ryanoasis/nerd-fonts/releases/latest). Install it, select that font in your terminal profile, and restart the terminal.
+For the full icon set, install a [Nerd Font](https://www.nerdfonts.com/font-downloads), select it in your terminal profile, and restart the terminal. Installing the font in the OS alone is not enough for apps such as VS Code or Windows Terminal.
 
-The default `auto` mode detects the terminal environment, not the installed font file. If icons appear as boxes or incorrect symbols, open `/open-tui` and choose one of these modes under **Appearance**:
+In `/open-tui`, **Appearance → Icons** offers `auto`, `nerd`, `unicode`, and `ascii`. The default `auto` mode checks the terminal environment, not the installed font. If icons appear as boxes, choose `unicode`; if your terminal has a Nerd Font, you can force `nerd`, including over SSH.
 
-- `nerd`: force Nerd Font icons after configuring a Nerd Font in the terminal
-- `ascii`: use plain-text icons with no patched font required
-- `auto`: use Nerd Font icons in recognized terminals and ASCII elsewhere
-
-If the font is installed but `auto` still selects ASCII, choose `nerd` explicitly. In VS Code, Windows Terminal, and similar apps, configure the font in the terminal profile rather than only installing it in the operating system.
+See [icon detection and spacing](./docs/configuration.md#icons) for automatic selection rules and the Kitty spacing option.
 
 ## Configuration
 
-Run `/open-tui` to open the settings dialog. It provides **General**, **Appearance**, **Footer**, and **Telemetry** tabs. Settings are stored in `~/.pi/agent/open-tui.json`:
+Run `/open-tui` to open the settings dialog. Its **General**, **Appearance**, **Footer**, and **Telemetry** tabs are available in English and Simplified Chinese and adapt to the terminal size. Use Tab/Shift+Tab or ←/→ to switch tabs, ↑/↓ to move, Enter/Space to change a value, and Esc/q to close.
 
-```json
-{
-  "enabled": true,
-  "settingsLanguage": "en",
-  "cursorStyle": "block",
-  "fullscreen": {
-    "wheelScrollLines": 4
-  },
-  "icons": {
-    "mode": "auto"
-  },
-  "footerSegments": {
-    "cwd": true,
-    "hostname": false,
-    "sessionName": false,
-    "gitBranch": true,
-    "gitStatus": true,
-    "gitCommit": false,
-    "runtime": true,
-    "context": true,
-    "tokens": true,
-    "cost": true,
-    "extensionStatuses": true
-  },
-  "telemetry": {
-    "enabled": true,
-    "tps": true,
-    "ttft": true,
-    "duration": true,
-    "tokens": true,
-    "stalls": true,
-    "cost": true
-  },
-  "thinkingPeek": {
-    "lines": 1
-  },
-  "workingRefresh": {
-    "mode": "event"
-  }
-}
-```
+Settings are stored in `open-tui.json` inside Pi's agent directory (default: `~/.pi/agent`; overridden by `PI_CODING_AGENT_DIR`). If saving fails, a warning explains that the change applies only to the current session.
 
-Key options:
-
-| Option | Values | Notes |
+| Setting | Where to find it | Default |
 | --- | --- | --- |
-| `settingsLanguage` | `en`, `zh` | Changes the `/open-tui` interface language |
-| `cursorStyle` | `block`, `bar`, `underline` | `bar` and `underline` require terminal cursor-shape support |
-| `fullscreen.wheelScrollLines` | `1`-`10` | Lines scrolled per mouse-wheel notch in fullscreen mode; defaults to `4`. In `/open-tui`, press Enter on this item and type a number (values are clamped to `1`-`10`) |
-| `icons.mode` | `auto`, `nerd`, `ascii` | Controls footer and telemetry icons |
-| `footerSegments` | Boolean flags | Shows or hides individual footer data |
-| `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
-| `thinkingPeek.lines` | `0`, `1`, `2` | Off, one-line, or two-line hidden thinking preview |
-| `workingRefresh.mode` | `event`, `realtime` | Footer refresh strategy while the agent works; defaults to scroll-stable `event` mode |
+| Header and settings language | General → Interface | Header on, English |
+| Working refresh (`workingRefresh.mode`: `event` or `realtime`) | General → Footer | Event-driven |
+| Thinking peek | General → Messages & tools | 1 line |
+| Copy buttons | General → Messages & tools | On, fullscreen only |
+| Tool view | General → Messages & tools | Native |
+| Footer in editor border | General → Footer | Off |
+| Icons and cursor style | Appearance | Auto icons, block cursor |
+| Footer fields and telemetry measurements | Footer / Telemetry | Individually configurable |
 
-`sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` shows the short hash and tag in detached HEAD state. Disabling `extensionStatuses` hides the entire extension status line, including MCP status.
+Selecting **Tool view: Compact** reveals **Compact extension tools** as a child setting. Switching back to Native hides it and retains its value. The [configuration reference](./docs/configuration.md#english) contains the complete JSON defaults, every option, and tool exclusions.
 
-Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runtime field because Pi does not yet expose a public setter. On Pi versions without a compatible field, the setting is ignored and Pi's default scrolling remains active.
+## Header, footer, and editor
+
+The header provides model and project context with command hints. The two main footer rows keep location, Git state, runtime, a working/done timer, context usage, model details, tokens, and cost visible as space allows. Fields can be toggled individually; the layout shortens or hides lower-priority information in narrow terminals.
+
+Footer token and cost totals include assistant responses, tool-reported usage, compaction and branch summaries, and cache warming. The cache-hit percentage describes the latest assistant response. Other extensions can use separate status rows or [contribute text directly to the main footer](./docs/footer-segments.md).
+
+Enable **Footer in editor border** to move the two main rows into the editor's top and bottom borders. Extension status rows remain below the editor. Compatible editors keep their input behavior, completion, and ghost text; editors that cannot be framed retain a separate footer. See [editor compatibility and layout](./docs/implementation.md#editor-and-layout) for the integration boundaries.
 
 ### Working refresh
 
@@ -128,31 +92,68 @@ Fullscreen wheel speed uses an isolated compatibility shim for Pi 0.84.2's runti
 
 ## Turn telemetry
 
-After each complete agent run, pi-open-tui shows one transient result. Tool-call turns are combined into that result:
+After each complete agent run, pi-open-tui shows one transient result, combining its assistant turns:
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
 ```
 
-TPS is calculated from all provider-reported assistant output tokens divided by the total generation time across the run. Timing starts at `turn_start` and ends at the assistant `message_end`, so it includes TTFT, hidden reasoning, buffering, and stalls; tool execution between turns is excluded. Runs without output tokens or measurable generation time show `TPS —`.
+TPS measures provider-reported output tokens over generation time, including waiting and stalls but excluding tool execution between turns. The working timer also shows an estimated live speed such as `~54 tok/s` during streaming. The `$ / M` field is the effective rate per million tokens for the run; the footer shows cumulative session cost.
 
-The `$ / M` value is the model's list-price rate from `usage.cost.total`, not the cumulative session cost shown in the footer. Every telemetry field can be toggled from the **Telemetry** tab.
+Toggle notification fields under **Telemetry → Measurements**, or live speed under **Footer → Runtime → Live TPS**. See [measurement definitions](./docs/implementation.md#usage-and-telemetry) for formulas, timing boundaries, and cache accounting.
 
 ## Thinking peek
 
-When Pi's **Hide thinking** setting is enabled, pi-open-tui shows a compact ticker in the native hidden thinking block's `Thinking...` position. The `/open-tui` setting offers three modes: **Off**, **1 line**, and **2 lines**.
-
-- while the model is reasoning, the current thinking tail streams by with a spinner (`~ think ⠋ …`);
-- when the answer starts, it settles on a check mark (`~ think ✓`);
-- in 2-line mode, the previous and latest thinking lines share the same text indentation; if the latest line overflows, both rows follow its newest tail as tokens arrive instead of retaining the previous line;
-- after the task settles, the native `Thinking...` label is restored.
+With Pi's **Hide thinking** enabled, pi-open-tui replaces the hidden block's `Thinking...` label with the latest reasoning tail while the model works:
 
 ```text
 ~ think ⠋ previous thought
           latest thought
 ```
 
-The ticker appears only once the model actually streams reasoning, so non-reasoning models never show it. Pi's own Hide thinking toggle controls visibility; changing it takes effect immediately. Each row is truncated by *visible* width, so CJK-wide thinking text cannot overflow. Configure it from **General → Thinking peek** in `/open-tui`, or via `thinkingPeek.lines` in `open-tui.json`.
+Choose **Off**, **1 line**, or **2 lines** under **General → Messages & tools → Thinking peek**. The ticker appears only when the model streams reasoning, settles on a check mark when the answer begins, and returns to Pi's native label after the task settles. It follows Pi's Hide thinking toggle immediately and clips text to fit the available width.
+
+## Tool view
+
+**Native** remains the default. Select **General → Messages & tools → Tool view → Compact** to display Pi's built-in tools (`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, `ls`) as call and summary rows:
+
+```text
+● Read(extensions/open-tui/footer.ts:1-120)
+  └  120 lines
+● Edit(extensions/open-tui/footer.ts)
+  └  +2 −1
+● Bash(npm test)
+  └  Done · 131 lines · 6.4s
+```
+
+- Successful `edit` and `write` calls show syntax-highlighted previews of up to 16 rows, with a hint to expand longer output.
+- Running shell calls show recent output and elapsed time; errors retain their error summary.
+- Click a row to expand its native card, or use `Ctrl+O` to expand all rows. Tools, arguments, results, and model-visible content are unchanged.
+- Enable **Compact extension tools** to include extension and MCP tools. Use `toolView.exclude` in the config file for tools that should keep native rendering. Recognized `@ff-labs/pi-fff` tools receive search-specific summaries.
+- Changing the mode affects newly created rows. Use `/reload` or a new session to apply it to the whole transcript.
+
+See [tool rendering details](./docs/implementation.md#tool-rendering) for preview rules, extension summaries, and renderer compatibility.
+
+## Copy buttons
+
+In fullscreen mode (Pi's `tuiMode: "fullscreen"`), completed code blocks show a clickable `[Copy]` label in their rounded frame when there is enough width. User messages have a Copy label too. Clicking copies the source text and Pi flashes `Copied!`.
+
+```text
+╭─ sh ─────────────── [Copy] ╮
+│ pi install npm:pi-open-tui │
+╰────────────────────────────╯
+```
+
+Code labels copy code without fences, preserving indentation and tabs. User-message labels copy the original message. Streaming code blocks gain their label when streaming finishes; regular mode and thinking blocks keep Pi's plain fences. Use Pi's `/copy` to copy a whole assistant reply.
+
+Toggle **General → Messages & tools → Copy buttons** to enable or disable this feature. [Copy-button details](./docs/implementation.md#copy-button-behavior) cover width limits, cached blocks, and interaction with other renderers.
+
+## Documentation
+
+- [Configuration reference](./docs/configuration.md#english) — complete defaults, options, and icon selection
+- [Implementation and compatibility](./docs/implementation.md#english) — measurement formulas, layout, rendering, and lifecycle
+- [Extension footer segments](./docs/footer-segments.md) — public events and an integration example for extension authors
+- [Changelog](./CHANGELOG.md) — released and upcoming changes
 
 ## Local development
 
@@ -163,16 +164,19 @@ npm run typecheck
 pi -e .
 ```
 
+CI checks Pi 1.5.0 and the latest release on Node.js 22.19.0 and 24 across Linux, Windows, and macOS. Keep all Pi packages on the same version. Use `pi -e .` to check terminal fonts, mouse interaction, and cursor support interactively.
+
 ## Acknowledgements
 
 This project builds on several Pi community packages:
 
 - **[pi-haiku](https://github.com/nnocte/pi-haiku)** — two-line footer structure and working timer
-- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi logo frames and rounded editor border technique
+- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi logo artwork and rounded editor border technique
 - **[pi-zentui](https://github.com/lmilojevicc/pi-zentui)** — Starship-style footer segments, runtime detection, session lifecycle, and settings UI pattern
 - **[pi-tps](https://github.com/monotykamary/pi-tps)** — turn timing, stall detection, and conservative TPS measurement
+- **[pi-polish](https://github.com/Pringled/pi-extensions/blob/main/packages/pi-polish)** — compact tool-call rows and syntax-highlighted edit diffs
 
-The logo frames are derived from Pi's official install script (`pi.dev/install.sh`). Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
+The logo artwork is derived from Pi's official install script (`pi.dev/install.sh`). Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
 
 Special thanks to the **[LINUX DO](https://linux.do)** community for its support.
 

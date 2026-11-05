@@ -43,23 +43,28 @@ export function truncateBranch(branch: string, maxLen: number): string {
 }
 
 export function truncatePath(path: string, maxLen: number): string {
-	if (path.length <= maxLen) return path;
+	// `maxLen` is a terminal-column budget, so every comparison here must use
+	// display width. Comparing String.length let wide (CJK) paths stay wider than
+	// the budget: for a basename of 4 characters but 8 columns, `truncatePath`
+	// returned it unchanged, so fitSegmentsByPriority's `while (totalW() > maxW)`
+	// loop never made progress and livelocked the renderer at 100% CPU.
+	if (visibleWidth(path) <= maxLen) return path;
 	if (maxLen <= 3) return "...".slice(0, maxLen);
 	const sepChar = path.includes("/") ? "/" : "\\";
 	const parts = path.split(/[\\/]/);
-	if (parts.length <= 2) return path.slice(0, maxLen - 3) + "...";
+	if (parts.length <= 2) return truncateToWidth(path, maxLen, "...");
 	// Keep first segment (e.g. ~) and as many trailing segments as fit.
 	const tail: string[] = [];
 	let tailLen = 0;
 	for (let i = parts.length - 1; i >= 1; i--) {
 		const seg = parts[i]!;
-		if (tailLen + seg.length + 4 > maxLen) break;
+		if (tailLen + visibleWidth(seg) + 4 > maxLen) break;
 		tail.unshift(seg);
-		tailLen += seg.length + 1;
+		tailLen += visibleWidth(seg) + 1;
 	}
 	const head = parts[0]!;
 	const result = `${head}${sepChar}...${sepChar}${tail.join(sepChar)}`;
-	return result.length > maxLen ? result.slice(0, maxLen - 3) + "..." : result;
+	return visibleWidth(result) > maxLen ? truncateToWidth(result, maxLen, "...") : result;
 }
 
 export function finiteOrZero(value: unknown): number {
@@ -97,9 +102,9 @@ export function formatModelLabel(model: { provider?: string; id?: string } | nul
 	return model.provider ? `${model.provider}/${model.id}` : model.id;
 }
 
-export function formatProviderLabel(provider: string | undefined): string {
+export function formatProviderLabel(provider: string | undefined, capitalize: boolean): string {
 	if (!provider) return "Unknown";
-	return provider.charAt(0).toUpperCase() + provider.slice(1);
+	return capitalize ? provider.charAt(0).toUpperCase() + provider.slice(1) : provider;
 }
 
 export function alignRight(left: string, right: string, width: number, theme: Theme): string {
@@ -128,17 +133,26 @@ export type PrioritizedSegment = {
 	truncate?: (text: string, maxWidth: number, ellipsis: string) => string;
 };
 
+export interface SegmentFitOptions {
+	/** Gap between adjacent surviving segments, using their original indices. */
+	gapWidth?: (previousIndex: number, nextIndex: number) => number;
+	/** Keep existing callers' compact order unless the row opts into priorities. */
+	compactOrder?: "input" | "priority";
+}
+
 /**
  * Pack segments into maxWidth: compact segments first, then shrink/drop the
- * lowest-priority segments (higher priority = survives longer). Returns the
- * surviving segment texts in original order, space-joined.
+ * lowest-priority segments (higher priority = survives longer). Returns one
+ * text per input segment, preserving positions with empty strings for dropped items.
  */
 export function fitSegmentsByPriority(
 	segs: readonly PrioritizedSegment[],
 	maxW: number,
 	ellipsis = "...",
+	options: SegmentFitOptions = {},
 ): string[] {
-	const items = segs.map((s) => ({
+	const items = segs.map((s, index) => ({
+		index,
 		text: s.text,
 		compactText: s.compactText,
 		priority: s.priority,
@@ -147,18 +161,41 @@ export function fitSegmentsByPriority(
 	}));
 	const totalW = () => {
 		const active = items.filter((it) => it.text !== "");
-		return active.reduce((a, it) => a + it.w, 0) + Math.max(0, active.length - 1);
+		return active.reduce((width, item, index) => width + item.w + (index === 0
+			? 0
+			: options.gapWidth?.(active[index - 1]!.index, item.index) ?? 1), 0);
 	};
 	// Compact (e.g. cwd -> basename) before sacrificing any segment content.
 	if (totalW() > maxW) {
-		for (const item of items) {
+		const compactItems = options.compactOrder === "priority"
+			? [...items].sort((a, b) => a.priority - b.priority || a.index - b.index)
+			: items;
+		for (const item of compactItems) {
 			if (!item.compactText || visibleWidth(item.compactText) >= item.w) continue;
 			item.text = item.compactText;
 			item.w = visibleWidth(item.text);
 			if (totalW() <= maxW) break;
 		}
 	}
+	// A segment whose `truncate` cannot actually shrink would otherwise spin here
+	// forever and block the render timer. Require each pass to make progress, and
+	// drop the worst segment when it does not, so layout always terminates.
+	let lastTotal = Infinity;
 	while (totalW() > maxW) {
+		const nowTotal = totalW();
+		if (nowTotal >= lastTotal) {
+			let worst = -1;
+			for (let i = 0; i < items.length; i++) {
+				if (items[i].text !== "" && (worst === -1 || items[i].priority < items[worst].priority)) {
+					worst = i;
+				}
+			}
+			if (worst === -1) break;
+			items[worst].text = "";
+			items[worst].w = 0;
+			continue;
+		}
+		lastTotal = nowTotal;
 		let target = -1;
 		for (let i = 0; i < items.length; i++) {
 			if (items[i].text !== "" && (target === -1 || items[i].priority < items[target].priority)) {
@@ -166,9 +203,7 @@ export function fitSegmentsByPriority(
 			}
 		}
 		if (target === -1) break;
-		const others = items.filter((_, i) => i !== target && items[i].text !== "");
-		const otherW = others.reduce((a, it) => a + it.w, 0) + Math.max(0, others.length - 1);
-		const avail = maxW - otherW - (others.length > 0 ? 1 : 0);
+		const avail = maxW - (nowTotal - items[target].w);
 		if (avail <= visibleWidth(ellipsis)) {
 			items[target].text = "";
 			items[target].w = 0;
@@ -182,7 +217,7 @@ export function fitSegmentsByPriority(
 			break;
 		}
 	}
-	return items.filter((it) => it.text !== "").map((it) => it.text);
+	return items.map((it) => it.text);
 }
 
 export function stressColor(value: number, warn = 70, danger = 90): ThemeColor {
@@ -271,6 +306,28 @@ export function sanitizeStatus(text: string): string {
 		.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
 		.replace(/ +/g, " ")
 		.trim();
+}
+
+// One status token is an SGR sequence, another escape sequence, or one control
+// character. SGR carries colours. Everything else moves the cursor or rewrites
+// the terminal, so it must never reach the footer row.
+const STATUS_TOKEN = /(?:\x1b\[|\x9b)[0-?]*[ -/]*m|(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]|(?:\x1bP|\x90|\x1bX|\x98|\x1b\^|\x9e|\x1b_|\x9f)[\s\S]*?(?:\x1b\\|\x9c|$)|(?:\x1b\]|\x9d)[\s\S]*?(?:\x07|\x1b\\|\x9c|$)|\x1b[@-Z\\_]|[\u0000-\u001f\u007f-\u009f]/g;
+const SGR_TOKEN = /^(?:\x1b\[|\x9b)[0-9;:]*m$/;
+const SGR_SEQUENCE = /(?:\x1b\[|\x9b)[0-9;:]*m/;
+
+/**
+ * Sanitize a status text the same way {@link sanitizeStatus} does, but keep the
+ * SGR sequences the extension set. Extensions colour their own status text with
+ * `ctx.ui.theme.fg()`. Stripping those codes renders every status grey.
+ */
+export function sanitizeStatusPreservingStyles(text: string): string {
+	const cleaned = text.replace(STATUS_TOKEN, (token) => (SGR_TOKEN.test(token) ? token : " "));
+	return cleaned.replace(/ {2,}/g, " ").trim();
+}
+
+/** True when the text carries SGR colour or style sequences. */
+export function hasAnsiStyles(text: string): boolean {
+	return SGR_SEQUENCE.test(text);
 }
 
 export function formatThinkingLabel(level: string): string {

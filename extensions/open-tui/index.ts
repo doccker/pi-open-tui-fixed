@@ -1,13 +1,16 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
+import { installCopyButtons, markCopyScope } from "./copy-buttons.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
+import { createFooterSegments } from "./footer-segments.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
+import { registerToolView } from "./tool-view.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -25,9 +28,6 @@ import {
 } from "./peek.ts";
 
 type PendingUiChange = "install" | "uninstall";
-const HIDDEN_THINKING_HORIZONTAL_PADDING = 2;
-// Pi's fullscreen transcript can reserve one more column for its scrollbar.
-const HIDDEN_THINKING_SCROLLBAR_RESERVE = 1;
 
 export function getPendingUiChange(enabled: boolean, active: boolean): PendingUiChange | undefined {
 	if (enabled === active) return undefined;
@@ -35,12 +35,7 @@ export function getPendingUiChange(enabled: boolean, active: boolean): PendingUi
 }
 
 function isTuiContext(ctx: ExtensionContext): boolean {
-	try {
-		const mode = (ctx as ExtensionContext & { mode?: string }).mode;
-		return ctx.hasUI && (mode === undefined || mode === "tui");
-	} catch {
-		return false;
-	}
+	return ctx.hasUI && ctx.mode === "tui";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -49,6 +44,7 @@ export default function (pi: ExtensionAPI) {
 	const turnTelemetry = new TurnTelemetryTracker();
 
 	let config: OpenTuiConfig = structuredClone(DEFAULT_CONFIG);
+	let configLoaded = false;
 	let active = false;
 	let lastCtx: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
@@ -56,7 +52,9 @@ export default function (pi: ExtensionAPI) {
 	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
+	let copyButtons: ReturnType<typeof installCopyButtons> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
+	const footerSegments = createFooterSegments(pi.events, () => requestFooterRender?.());
 
 	// thinking-peek state (rendered by Pi inside its hidden-thinking block)
 	const peek: PeekState = createPeekState();
@@ -67,41 +65,19 @@ export default function (pi: ExtensionAPI) {
 
 	const getThinkingLevel = () => (sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : "off");
 
-	/** True while the agent is running (false during session-restore replay). */
-	const isAgentIdle = (ctx: ExtensionContext): boolean => {
-		try {
-			return (ctx as ExtensionContext & { isIdle?: () => boolean }).isIdle?.() === true;
-		} catch {
-			return false;
-		}
-	};
-
 	/** Pi decides whether this label is visible; our toggle only controls updates. */
 	const isPeekEnabled = () => sessionLifecycle.isCurrent() && config.enabled && config.thinkingPeek.lines > 0 && active;
-
-	/** Keep each native hidden-thinking label row within Pi's narrowest transcript width. */
-	const hiddenThinkingLabelWidth = (): number => {
-		if (!editor) throw new Error("Open TUI editor is not installed");
-		return Math.max(
-			1,
-			editor.getViewportWidth() - HIDDEN_THINKING_HORIZONTAL_PADDING - HIDDEN_THINKING_SCROLLBAR_RESERVE,
-		);
-	};
 
 	const setPeekLabel = (ctx?: ExtensionContext): void => {
 		if (!isPeekEnabled() || peek.phase === "idle") return;
 		const target = ctx ?? lastCtx;
 		if (!target || !isTuiContext(target)) return;
 		if (!editor) throw new Error("Open TUI editor is not installed");
-		editor.setLatestHiddenThinkingLabel(
-			buildPeekLabel(
-				peek,
-				peekFrame,
-				resolveGlyphs(config.icons.mode),
-				hiddenThinkingLabelWidth(),
-				config.thinkingPeek.lines,
-			),
-		);
+		const snapshot = { ...peek };
+		const frame = peekFrame;
+		const glyphs = resolveGlyphs(config.icons.mode);
+		const lines = config.thinkingPeek.lines;
+		editor.setLatestHiddenThinkingLabel((width) => buildPeekLabel(snapshot, frame, glyphs, width, lines));
 		peekLabelActive = true;
 	};
 
@@ -131,23 +107,44 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		if (!active) {
-			cleanupHeader = installHeader(pi, ctx);
-			cleanupFooter = installFooter(
+			// Leave the header slot alone when disabled so another extension's header survives.
+			if (config.header) cleanupHeader = installHeader(pi, ctx);
+			const footer = installFooter(
 				ctx,
 				() => state,
 				() => config,
-				() => getModelMeta(ctx, getThinkingLevel),
+				() => getModelMeta(ctx, getThinkingLevel, config.footerSegments.capitalizeProviderName),
 				{
 					setRequestRender: (fn) => {
 						requestFooterRender = fn ?? undefined;
+						if (!fn) footerSegments.deactivate();
+						else if (active && sessionLifecycle.isCurrent()) footerSegments.activate();
 					},
 					scheduleGitRefresh: () => {
 						void scheduleGitRefresh(ctx);
 					},
+					getLiveTps: () => turnTelemetry.getLiveTps(),
+					getExtensionSegments: footerSegments.getSegments,
+					canEmbedInEditor: () => editor?.isFramed() ?? false,
 				},
 			);
-			editor = installEditor(pi, ctx, config.cursorStyle, config.fullscreen.wheelScrollLines);
+			cleanupFooter = footer.cleanup;
+			editor = installEditor(
+				pi,
+				ctx,
+				config.cursorStyle,
+				{
+					enabled: () => config.inlineFooter,
+					render: footer.renderInline,
+				},
+			);
+			copyButtons = installCopyButtons({
+				getTui: editor.getTui,
+				getTheme: () => ctx.ui.theme,
+				isEnabled: () => config.copyButtons,
+			});
 			active = true;
+			if (requestFooterRender) footerSegments.activate();
 		}
 	};
 
@@ -156,9 +153,11 @@ export default function (pi: ExtensionAPI) {
 		if (active) {
 			cleanupHeader?.();
 			cleanupFooter?.();
+			copyButtons?.cleanup();
 			editor?.cleanup();
 			cleanupHeader = undefined;
 			cleanupFooter = undefined;
+			copyButtons = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
 			resetPeek();
@@ -170,7 +169,8 @@ export default function (pi: ExtensionAPI) {
 	const scheduleGitRefresh = async (ctx: ExtensionContext) => {
 		if (!sessionLifecycle.isCurrent()) return;
 		const segs = config.footerSegments;
-		if (!segs.gitBranch && !segs.gitStatus && !segs.gitCommit) {
+		// gitCommit only appends a tag to the gitBranch segment, so it never needs git on its own.
+		if (!segs.gitBranch && !segs.gitStatus) {
 			state.git = emptyGitStatus();
 			requestFooterRender?.();
 			return;
@@ -178,8 +178,8 @@ export default function (pi: ExtensionAPI) {
 		const generation = sessionLifecycle.currentGeneration();
 		const cwd = ctx.cwd;
 		const git = await readGitStatus(cwd, {
-			readCommit: true,
-			readTag: segs.gitCommit,
+			readCommit: segs.gitBranch,
+			readTag: segs.gitBranch && segs.gitCommit,
 			readCounts: segs.gitStatus,
 		});
 		if (!sessionLifecycle.isCurrent(generation)) return;
@@ -222,13 +222,13 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
 		lastCtx = ctx;
-		state.sessionStartEpoch = Date.now();
 		state.workingSince = undefined;
 		state.lastDoneIn = undefined;
 		invalidateUsageCache();
 
 		ensureConfigExists();
 		config = loadConfig((msg, level) => ctx.ui.notify(msg, level));
+		configLoaded = true;
 		clearPeekLabel(ctx);
 
 		applyUi(ctx);
@@ -239,6 +239,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
 		stopWorkingUpdates();
+		footerSegments.deactivate();
 		if (active) {
 			uninstallUi(ctx);
 		}
@@ -272,7 +273,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_start", (event, ctx) => {
 		turnTelemetry.handle(event);
-		if (!sessionLifecycle.isCurrent() || isAgentIdle(ctx)) return;
+		if (!sessionLifecycle.isCurrent() || ctx.isIdle()) return;
 		const role = event.message?.role;
 		if (role === "user") {
 			// Restore Pi's native label until real thinking arrives. The task epoch is
@@ -287,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_update", (event, ctx) => {
 		turnTelemetry.handle(event);
-		if (!sessionLifecycle.isCurrent() || isAgentIdle(ctx)) return;
+		if (!sessionLifecycle.isCurrent() || ctx.isIdle()) return;
 		if (!isPeekEnabled()) return;
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
@@ -367,14 +368,34 @@ export default function (pi: ExtensionAPI) {
 		refreshInteractiveState(ctx);
 	});
 
+	registerToolView(
+		pi,
+		() => {
+			// Resumed sessions rebuild their rows before session_start fires, so read the file once here.
+			if (!configLoaded) {
+				config = loadConfig();
+				configLoaded = true;
+			}
+			return config.enabled ? config.toolView : { ...config.toolView, mode: "native" };
+		},
+		() => resolveGlyphs(config.icons.mode),
+	);
+
+	pi.registerMarkdownTransformer(markCopyScope);
+
 	registerSettingsCommand(pi, {
 		getConfig: () => config,
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
-			const wheelScrollLinesChanged = config.fullscreen.wheelScrollLines !== newConfig.fullscreen.wheelScrollLines;
+			const headerChanged = config.header !== newConfig.header;
+			const copyButtonsChanged = config.copyButtons !== newConfig.copyButtons;
 			const thinkingPeekLinesChanged = config.thinkingPeek.lines !== newConfig.thinkingPeek.lines;
 			const workingRefreshModeChanged = config.workingRefresh.mode !== newConfig.workingRefresh.mode;
-			saveConfig(newConfig);
+			if (!saveConfig(newConfig)) {
+				lastCtx?.ui.notify(newConfig.settingsLanguage === "zh"
+					? "open-tui 设置本次生效，但未保存到磁盘。请检查配置目录权限和可用空间。"
+					: "open-tui settings apply for this session but could not be saved. Check configuration directory permissions and free space.", "warning");
+			}
 			config = newConfig;
 			if (newConfig.thinkingPeek.lines === 0 || !newConfig.enabled) {
 				resetPeek();
@@ -385,16 +406,18 @@ export default function (pi: ExtensionAPI) {
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);
 			}
-			if (wheelScrollLinesChanged && active && editor) {
-				editor.setWheelScrollLines(newConfig.fullscreen.wheelScrollLines);
+			if (headerChanged && active && lastCtx) {
+				cleanupHeader?.();
+				cleanupHeader = newConfig.header ? installHeader(pi, lastCtx) : undefined;
 			}
 			if (workingRefreshModeChanged && state.workingSince !== undefined) {
 				startWorkingUpdates();
 			}
+			if (copyButtonsChanged) copyButtons?.refresh();
 			if (lastCtx) {
 				pendingUiChange = getPendingUiChange(newConfig.enabled, active);
 			}
-			const gitNeeded = newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus || newConfig.footerSegments.gitCommit;
+			const gitNeeded = newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus;
 			if (lastCtx && gitNeeded) {
 				void scheduleGitRefresh(lastCtx);
 			} else {

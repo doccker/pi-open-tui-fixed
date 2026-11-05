@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG, loadConfig, type OpenTuiConfig } from "../extensions/open-tui/config.ts";
+import { createEventBus, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type OpenTuiConfig } from "../extensions/open-tui/config.ts";
 import { installEditor } from "../extensions/open-tui/editor.ts";
-import { getPendingUiChange } from "../extensions/open-tui/index.ts";
+import openTui, { getPendingUiChange } from "../extensions/open-tui/index.ts";
 import { registerSettingsCommand } from "../extensions/open-tui/settings-command.ts";
+import { preserveEnvironment, temporaryDirectory } from "./fixtures/test-helpers.ts";
 
 interface SettingsComponent extends Component {
 	handleInput(data: string): void;
@@ -25,10 +25,12 @@ async function openSettings(
 	onChange?: (config: OpenTuiConfig) => void,
 ): Promise<{
 	component: SettingsComponent;
+	terminal: { columns: number; rows: number };
 	getConfig: () => OpenTuiConfig;
 	isClosed: () => boolean;
 	isOverlayClosed: () => boolean;
 	waitForClose: () => Promise<void>;
+	press: (key: string, count?: number) => void;
 }> {
 	let commandHandler: ((args: string, ctx: ExtensionContext) => Promise<void> | void) | undefined;
 	let component: SettingsComponent | undefined;
@@ -53,7 +55,8 @@ async function openSettings(
 		},
 	});
 
-	const tui = { requestRender() {} } as TUI;
+	const terminal = { columns: 80, rows: 24 };
+	const tui = { terminal, requestRender() {} } as TUI;
 	const ctx = {
 		hasUI: true,
 		mode: "tui",
@@ -77,20 +80,41 @@ async function openSettings(
 	assert.ok(commandHandler);
 	const closePromise = Promise.resolve(commandHandler("", ctx));
 	assert.ok(component);
+	const mounted = component;
 
 	return {
 		component,
+		terminal,
 		getConfig: () => config,
 		isClosed: () => closed,
 		isOverlayClosed: () => overlayClosed,
 		waitForClose: () => closePromise,
+		press(key, count = 1) {
+			for (let i = 0; i < count; i++) mounted.handleInput(key);
+		},
 	};
 }
 
-function selectedLine(component: SettingsComponent): string {
-	return component.render(80).find((line) => line.includes("→ ")) ?? "";
+function selectedLine(component: SettingsComponent, width = 80): string {
+	return component.render(width).find((line) => line.includes("→ ")) ?? "";
 }
 
+// Configuration persistence.
+test("reports whether configuration was saved", (t) => {
+	const agentDir = temporaryDirectory(t, "open-tui-save-");
+	preserveEnvironment(t, ["PI_CODING_AGENT_DIR"]);
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.header = false;
+	assert.equal(saveConfig(config), true);
+	assert.equal(loadConfig().header, false);
+	const configPath = join(agentDir, "open-tui.json");
+	rmSync(configPath);
+	mkdirSync(configPath);
+	assert.equal(saveConfig(config), false);
+});
+
+// Navigation and live settings changes.
 test("closes cleanly after enabling or disabling the UI", async () => {
 	for (const enabled of [true, false]) {
 		const config = structuredClone(DEFAULT_CONFIG);
@@ -110,88 +134,19 @@ test("closes cleanly after enabling or disabling the UI", async () => {
 	}
 });
 
-test("updates fullscreen mouse wheel speed by typing a number", async () => {
-	const applied: number[] = [];
-	const settings = await openSettings(undefined, (config) => {
-		applied.push(config.fullscreen.wheelScrollLines);
-	});
-
-	settings.component.handleInput("\x1b[B");
-	settings.component.handleInput("\x1b[B");
-	assert.match(selectedLine(settings.component), /Mouse wheel speed/);
-
-	// Space opens the same editor without cycling the value.
-	settings.component.handleInput(" ");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 4);
-	assert.deepEqual(applied, []);
-	assert.match(settings.component.render(80).join("\n"), /Wheel scroll lines per notch/);
-	settings.component.handleInput("\x1b");
-
-	// Enter opens the number input, type 8, Enter applies.
-	settings.component.handleInput("\r");
-	const editingLines = settings.component.render(80);
-	const parentIndex = editingLines.findIndex((line) => line.includes("→ Mouse wheel speed"));
-	const promptIndex = editingLines.findIndex((line) => line.includes("Wheel scroll lines per notch"));
-	const parentLine = editingLines[parentIndex];
-	const promptLine = editingLines[promptIndex];
-	const inputLine = editingLines.find((line) => line.includes("> "));
-	assert.ok(parentLine);
-	assert.ok(promptLine);
-	assert.ok(inputLine);
-	assert.equal(promptIndex, parentIndex + 1);
-	const parentLabelStart = parentLine.indexOf("Mouse wheel speed");
-	const promptStart = promptLine.indexOf("Wheel scroll lines per notch");
-	const inputStart = inputLine.indexOf("> ");
-	assert.equal(promptStart, parentLabelStart + 2);
-	assert.equal(inputStart, promptStart);
-	assert.ok(inputLine.includes(CURSOR_MARKER));
-	assert.match(editingLines.join("\n"), /Wheel scroll lines per notch, 1-10 \(current: 4\)/);
-	for (const width of [24, 36, 48]) {
-		for (const line of settings.component.render(width)) {
-			assert.ok(visibleWidth(line) <= width, `${visibleWidth(line)} > ${width}: ${line}`);
-		}
-	}
-	settings.component.render(80);
-	settings.component.handleInput("8");
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 8);
-	assert.deepEqual(applied, [8]);
-	assert.equal(settings.isClosed(), false);
-	assert.match(selectedLine(settings.component), /Mouse wheel speed/);
-
-	// Out-of-range values are clamped by normalize.
-	settings.component.handleInput("\r");
-	settings.component.handleInput("99");
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 10);
-
-	// Empty input is treated as cancel.
-	settings.component.handleInput("\r");
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 10);
-	assert.deepEqual(applied, [8, 10]);
-
-	// Non-numeric input is rejected without writing a new value.
-	settings.component.handleInput("\r");
-	settings.component.handleInput("8x");
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 10);
-	assert.deepEqual(applied, [8, 10]);
-
-	// Esc cancels without changing the config.
-	settings.component.handleInput("\r");
-	settings.component.handleInput("\x1b");
-	assert.equal(settings.getConfig().fullscreen.wheelScrollLines, 10);
-	assert.deepEqual(applied, [8, 10]);
-	assert.match(selectedLine(settings.component), /Mouse wheel speed/);
+test("leaves fullscreen wheel speed to Pi settings", async () => {
+	const settings = await openSettings();
+	assert.doesNotMatch(settings.component.render(80).join("\n"), /wheel speed/i);
+	assert.equal("fullscreen" in settings.getConfig(), false);
 });
 
 test("previews cursor styles from the Appearance tab", async () => {
 	const writes: string[] = [];
 	let editorInstalls = 0;
+	let editorFactory: unknown;
 	let hardwareCursor = false;
 	const editorTui = {
-		terminal: { rows: 24, write: (data: string) => writes.push(data) },
+		terminal: { columns: 80, rows: 24, write: (data: string) => writes.push(data) },
 		requestRender() {},
 		getShowHardwareCursor: () => hardwareCursor,
 		setShowHardwareCursor: (enabled: boolean) => {
@@ -200,7 +155,9 @@ test("previews cursor styles from the Appearance tab", async () => {
 	} as unknown as TUI;
 	const editor = installEditor({} as ExtensionAPI, {
 		ui: {
+			getEditorComponent: () => editorFactory,
 			setEditorComponent: (factory: unknown) => {
+				editorFactory = factory;
 				editorInstalls++;
 				if (typeof factory === "function") {
 					factory(editorTui, {
@@ -279,12 +236,22 @@ test("remembers the selection for each tab", async () => {
 	assert.match(selectedLine(settings.component), /Git branch/);
 });
 
+test("toggles live TPS from the Footer tab", async () => {
+	const settings = await openSettings();
+
+	settings.press("\t", 2);
+	settings.press("\x1b[B", 8);
+	assert.match(selectedLine(settings.component), /Live TPS/);
+
+	settings.component.handleInput("\r");
+	assert.equal(settings.getConfig().footerSegments.liveTps, false);
+	assert.equal(settings.getConfig().telemetry.tps, true);
+});
+
 test("configures telemetry from its own tab", async () => {
 	const settings = await openSettings();
 
-	settings.component.handleInput("\t");
-	settings.component.handleInput("\t");
-	settings.component.handleInput("\t");
+	settings.press("\t", 3);
 	assert.match(selectedLine(settings.component), /Enabled/);
 
 	settings.component.handleInput("\r");
@@ -298,7 +265,7 @@ test("supports localized settings and keyboard shortcuts", async () => {
 	const settings = await openSettings();
 	assert.match(settings.component.render(80).join("\n"), /Open TUI Settings.*General.*Language/s);
 
-	settings.component.handleInput("\x1b[B");
+	settings.press("\x1b[B", 2);
 	settings.component.handleInput(" ");
 	assert.equal(settings.getConfig().settingsLanguage, "zh");
 	assert.match(settings.component.render(80).join("\n"), /Open TUI 设置.*常规.*语言.*简体中文/s);
@@ -307,13 +274,99 @@ test("supports localized settings and keyboard shortcuts", async () => {
 	const reopened = await openSettings(structuredClone(settings.getConfig()));
 	assert.match(reopened.component.render(80).join("\n"), /Open TUI 设置.*简体中文/s);
 
-	reopened.component.handleInput("\x1b[B");
+	reopened.press("\x1b[B", 2);
 	reopened.component.handleInput("\x1b[C");
 	assert.match(reopened.component.render(80).join("\n"), /\[外观\].*图标模式.*光标样式/s);
 	reopened.component.handleInput("\x1b[D");
 	assert.match(selectedLine(reopened.component), /语言/);
 	reopened.component.handleInput("q");
 	assert.equal(reopened.isClosed(), true);
+});
+
+test("configures inline footer from General settings", async () => {
+	const settings = await openSettings();
+	// Headers are skipped: Enabled → Header → Language → Thinking peek → Copy buttons → Tool view → Footer in editor border.
+	settings.press("\x1b[B", 6);
+	assert.match(selectedLine(settings.component), /Footer in editor border/);
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().inlineFooter, true);
+});
+
+test("toggles copy buttons from General settings", async () => {
+	const settings = await openSettings();
+	assert.equal(settings.getConfig().copyButtons, true);
+	// Enabled → Header → Language → Thinking peek → Copy buttons
+	settings.press("\x1b[B", 4);
+	assert.match(selectedLine(settings.component), /Copy buttons/);
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().copyButtons, false);
+});
+
+test("toggling tool view settings keeps the other tool view options", async () => {
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.toolView.exclude = ["subagent_wait"];
+	const settings = await openSettings(config);
+	// Enabled → Header → Language → Thinking peek → Copy buttons → Tool view
+	for (let i = 0; i < 5; i++) settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Tool view/);
+	settings.component.handleInput(" ");
+	settings.component.handleInput("\x1b[B");
+	assert.match(selectedLine(settings.component), /Compact extension tools/);
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().toolView.extensionTools, true);
+	assert.deepEqual(settings.getConfig().toolView, { mode: "compact", extensionTools: true, exclude: ["subagent_wait"] });
+});
+
+test("toggles the header without resetting a disabled slot and warns when persistence fails", async (t) => {
+	const agentDir = temporaryDirectory(t, "pi-open-tui-");
+	preserveEnvironment(t, ["PI_CODING_AGENT_DIR"]);
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({ ...DEFAULT_CONFIG, header: false }));
+	const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+	let command: ((args: string, ctx: ExtensionContext) => unknown) | undefined;
+	let settings: SettingsComponent | undefined;
+	const headers: unknown[] = [];
+	let editorFactory: unknown;
+	const notifications: Array<{ message: string; level: string }> = [];
+	const pi = {
+		on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => handlers.set(event, handler),
+		events: createEventBus(),
+		registerCommand: (_name: string, options: { handler: typeof command }) => (command = options.handler),
+		registerToolRenderer() {},
+		registerMarkdownTransformer() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		hasUI: true,
+		mode: "tui",
+		// Git/runtime probes spawn in cwd; keeping them out of agentDir lets Windows delete it.
+		cwd: process.cwd(),
+		ui: {
+			setFooter() {},
+			getEditorComponent: () => editorFactory,
+			setEditorComponent(factory: unknown) { editorFactory = factory; },
+			setHeader: (factory: unknown) => headers.push(factory),
+			notify: (message: string, level: string) => notifications.push({ message, level }),
+			custom: (factory: (tui: TUI, theme: Theme) => SettingsComponent) =>
+				void (settings = factory({ terminal: { columns: 80, rows: 24 }, requestRender() {} } as TUI, theme)),
+		},
+	} as unknown as ExtensionContext;
+	openTui(pi);
+	await handlers.get("session_start")?.({ type: "session_start" }, ctx);
+	assert.deepEqual(headers, [], "a disabled header must not reset another extension's header");
+	void command?.("", ctx);
+	assert.ok(settings);
+	settings.handleInput("\x1b[B");
+	assert.match(selectedLine(settings), /Override header/);
+	settings.handleInput(" ");
+	assert.equal(notifications.length, 0);
+	rmSync(join(agentDir, "open-tui.json"));
+	mkdirSync(join(agentDir, "open-tui.json"));
+	settings.handleInput(" ");
+	assert.equal(notifications.length, 1);
+	assert.equal(notifications[0]?.level, "warning");
+	assert.match(notifications[0]?.message ?? "", /apply for this session but could not be saved/);
+	assert.equal(typeof headers[0], "function");
+	assert.deepEqual(headers.slice(1), [undefined], "disabling restores Pi's built-in header once");
 });
 
 test("configures the hostname footer segment", async () => {
@@ -332,7 +385,7 @@ test("configures the extension status line with Space", async () => {
 	const settings = await openSettings();
 	settings.component.handleInput("\x1b[C");
 	settings.component.handleInput("\x1b[C");
-	for (let i = 0; i < 10; i++) settings.component.handleInput("\x1b[B");
+	for (let i = 0; i < 11; i++) settings.component.handleInput("\x1b[B");
 	assert.match(selectedLine(settings.component), /Extension status line/);
 
 	settings.component.handleInput(" ");
@@ -340,6 +393,7 @@ test("configures the extension status line with Space", async () => {
 	assert.match(selectedLine(settings.component), /Extension status line/);
 });
 
+// Width, height, and localization.
 test("keeps localized settings and values within narrow widths", async () => {
 	const config = structuredClone(DEFAULT_CONFIG);
 	config.settingsLanguage = "zh";
@@ -352,39 +406,106 @@ test("keeps localized settings and values within narrow widths", async () => {
 		}
 		const output = lines.join("\n");
 		assert.match(output, /开启/);
-		assert.match(output, /简体中文/);
+		settings.press("\x1b[B", 2);
+		assert.match(selectedLine(settings.component, width), /简体中文/);
+		settings.press("\x1b[A", 2);
 	}
 });
 
-test("normalizes invalid settings values", () => {
-	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-"));
-	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-	try {
-		process.env.PI_CODING_AGENT_DIR = agentDir;
-		writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({
-			settingsLanguage: "de",
-			cursorStyle: "invalid",
-			thinkingPeek: { lines: 9 },
-			workingRefresh: { mode: "invalid" },
-		}), "utf8");
-		const loaded = loadConfig();
-		assert.equal(loaded.settingsLanguage, "en");
-		assert.equal(loaded.cursorStyle, "block");
-		assert.equal(loaded.thinkingPeek.lines, 1);
-		assert.equal(loaded.workingRefresh.mode, "event");
-	} finally {
-		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-		rmSync(agentDir, { recursive: true, force: true });
+test("keeps every Footer selection visible in short terminals", async () => {
+	for (const language of ["en", "zh"] as const) {
+		for (const width of [24, 36, 48, 80]) {
+			const config = structuredClone(DEFAULT_CONFIG);
+			config.settingsLanguage = language;
+			const settings = await openSettings(config);
+			settings.terminal.columns = width;
+			settings.terminal.rows = 12;
+			settings.press("\t", 2);
+			for (let i = 0; i < 15; i++) {
+				const lines = settings.component.render(width);
+				assert.ok(lines.length <= 12, `${language} ${width}x12: ${lines.length} rows`);
+				assert.ok(lines.slice(0, 12).some((line) => line.includes("→ ")));
+				for (const line of lines) assert.ok(visibleWidth(line) <= width);
+				settings.component.handleInput("\x1b[B");
+			}
+		}
 	}
+});
+
+test("relayouts on height and width changes without losing the selection", async () => {
+	const settings = await openSettings();
+	settings.press("\t", 2);
+	settings.press("\x1b[B", 13);
+	assert.match(selectedLine(settings.component), /Capitalize provider name/);
+
+	for (const [width, rows] of [[80, 12], [80, 24], [48, 12], [24, 12], [36, 12], [80, 24]] as const) {
+		settings.terminal.columns = width;
+		settings.terminal.rows = rows;
+		const lines = settings.component.render(width);
+		assert.ok(lines.length <= rows, `${width}x${rows}: ${lines.length} rows`);
+		assert.match(lines.join("\n"), /→ .*On/);
+	}
+	assert.match(selectedLine(settings.component), /Capitalize provider name/);
+	settings.component.handleInput(" ");
+	assert.equal(settings.getConfig().footerSegments.capitalizeProviderName, false);
+});
+
+test("preserves long Footer labels' current values at narrow widths", async () => {
+	for (const language of ["en", "zh"] as const) {
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.settingsLanguage = language;
+		const settings = await openSettings(config);
+		settings.press("\t", 2);
+		settings.press("\x1b[B", 11);
+		for (const id of ["extensionStatuses", "extensionSegments", "capitalizeProviderName", "nerdIconSpacing"] as const) {
+			for (const toggle of [false, true]) {
+				if (toggle) settings.component.handleInput(" ");
+				const enabled = settings.getConfig().footerSegments[id];
+				const value = language === "en" ? (enabled ? "On" : "Off") : (enabled ? "开启" : "关闭");
+				for (const width of [24, 36, 48, 60]) {
+					const line = selectedLine(settings.component, width);
+					assert.ok(line.trimEnd().endsWith(`: ${value}`), line);
+					assert.ok(visibleWidth(line) <= width);
+				}
+			}
+			settings.component.handleInput("\x1b[B");
+		}
+	}
+});
+
+test("normalizes invalid settings values", (t) => {
+	const agentDir = temporaryDirectory(t, "pi-open-tui-");
+	preserveEnvironment(t, ["PI_CODING_AGENT_DIR"]);
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({
+		settingsLanguage: "de",
+		cursorStyle: "invalid",
+		header: "no",
+		inlineFooter: "yes",
+		copyButtons: "no",
+		thinkingPeek: { lines: 9 },
+		workingRefresh: { mode: "invalid" },
+		toolView: { mode: "hidden", extensionTools: "yes", exclude: ["keep", 1, null] },
+		fullscreen: { wheelScrollLines: 10 },
+	}), "utf8");
+	const loaded = loadConfig();
+	assert.equal(loaded.settingsLanguage, "en");
+	assert.equal(loaded.cursorStyle, "block");
+	assert.equal(loaded.header, true);
+	assert.equal(loaded.inlineFooter, false);
+	assert.equal(loaded.copyButtons, true);
+	assert.equal(loaded.thinkingPeek.lines, 1);
+	assert.equal(loaded.workingRefresh.mode, "event");
+	assert.deepEqual(loaded.toolView, { mode: "native", extensionTools: false, exclude: ["keep"] });
+	assert.equal("fullscreen" in loaded, true);
 });
 
 test("configures event-driven working refresh by default", async () => {
 	const settings = await openSettings();
 	assert.equal(settings.getConfig().workingRefresh.mode, "event");
 
-	// Enabled → Language → Wheel speed → Thinking peek → Working refresh
-	for (let i = 0; i < 4; i++) settings.component.handleInput("\x1b[B");
+	// Enabled → Header → Language → Thinking peek → Copy buttons → Tool view → Footer in editor border → Working refresh
+	settings.press("\x1b[B", 7);
 	assert.match(selectedLine(settings.component), /Working refresh/);
 	assert.match(selectedLine(settings.component), /Event-driven/);
 
@@ -396,10 +517,8 @@ test("configures event-driven working refresh by default", async () => {
 test("cycles the thinking peek line count from General settings", async () => {
 	const config = structuredClone(DEFAULT_CONFIG);
 	const settings = await openSettings(config);
-	// Enabled → Language → Wheel speed → Thinking peek
-	settings.component.handleInput("\x1b[B");
-	settings.component.handleInput("\x1b[B");
-	settings.component.handleInput("\x1b[B");
+	// Enabled → Header → Language → Thinking peek
+	settings.press("\x1b[B", 3);
 	assert.match(selectedLine(settings.component), /Thinking peek/);
 	assert.match(selectedLine(settings.component), /1 line/);
 	settings.component.handleInput("\r");

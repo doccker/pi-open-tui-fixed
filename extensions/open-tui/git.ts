@@ -58,7 +58,7 @@ export async function readGitStatus(
 	options: { readCommit?: boolean; readTag?: boolean; readCounts?: boolean } = {},
 ): Promise<GitStatus> {
 	const stdout = await gitExec(
-		["status", "--porcelain=v1", "--branch", "--show-stash"],
+		["status", "--porcelain=v1", "--branch"],
 		cwd,
 	);
 	if (stdout === null) {
@@ -67,7 +67,6 @@ export async function readGitStatus(
 
 	const status = emptyGitStatus();
 	const lines = stdout.split("\n");
-	let stashSupported = true;
 
 	for (const line of lines) {
 		if (line.startsWith("## ")) {
@@ -77,47 +76,41 @@ export async function readGitStatus(
 				status.branch = undefined;
 				status.commit = { oid: null, detached: true, tag: null };
 			} else {
-				const branchMatch = branchPart.match(/^(\S+?)(?:\.\.\.(\S+))?(?:\s+\[(ahead|behind) (\d+)\])?$/);
+				const branchMatch = branchPart.match(/^(\S+?)(?:\.\.\.(\S+))?(?:\s+\[(.*)\])?$/);
 				if (branchMatch) {
 					status.branch = branchMatch[1];
-					if (branchMatch[3] === "ahead") status.ahead = parseInt(branchMatch[4]!, 10);
-					if (branchMatch[3] === "behind") status.behind = parseInt(branchMatch[4]!, 10);
+					const ahead = branchMatch[3]?.match(/\bahead (\d+)\b/);
+					const behind = branchMatch[3]?.match(/\bbehind (\d+)\b/);
+					if (ahead) status.ahead = parseInt(ahead[1]!, 10);
+					if (behind) status.behind = parseInt(behind[1]!, 10);
 				}
 			}
 			continue;
 		}
 
-		if (line.startsWith("# stash ")) {
-			const stashCount = parseInt(line.slice(8).trim(), 10);
-			if (!Number.isNaN(stashCount)) {
-				status.stashed = stashCount;
-				stashSupported = true;
-			}
-			continue;
-		}
-
-		// ponytail: skip file-entry counting when only branch/commit display is on;
-		// the first `git status` call itself can't be split, but the stash fallback below can.
+		// Skip file-entry counting and the separate stash query for branch-only display.
 		if (options.readCounts === false) continue;
 		if (line.length < 3) continue;
 		const x = line[0]!;
 		const y = line[1]!;
 
-		if (x === "U" || y === "U" || (x === "C" && y === "C")) status.conflicted++;
+		if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D")) status.conflicted++;
 		else if (x === "?" && y === "?") status.untracked++;
-		else if (x === "R") status.renamed++;
-		else if (x === "D" || y === "D") status.deleted++;
+		else if (x === "R") {
+			status.renamed++;
+			if (y === "M") status.modified++;
+			else if (y === "D") status.deleted++;
+		} else if (x === "D" || y === "D") status.deleted++;
 		else {
 			if (x !== " " && x !== "?") status.staged++;
 			if (y === "M" || y === "D") status.modified++;
 		}
 	}
 
-	if (options.readCounts !== false && stashSupported && status.stashed === 0 && !stdout.includes("# stash")) {
-		const stashOut = await gitExec(["stash", "list", "--count"], cwd);
+	if (options.readCounts !== false) {
+		const stashOut = await gitExec(["stash", "list", "--format=%H"], cwd);
 		if (stashOut !== null) {
-			const count = parseInt(stashOut.trim(), 10);
-			if (!Number.isNaN(count)) status.stashed = count;
+			status.stashed = stashOut.split("\n").filter((line) => line.trim() !== "").length;
 		}
 	}
 
@@ -135,17 +128,4 @@ export async function readGitStatus(
 	}
 
 	return status;
-}
-
-export function hasGitChanges(s: GitStatus): boolean {
-	return (
-		s.modified > 0 ||
-		s.untracked > 0 ||
-		s.staged > 0 ||
-		s.conflicted > 0 ||
-		s.renamed > 0 ||
-		s.deleted > 0 ||
-		s.ahead > 0 ||
-		s.behind > 0
-	);
 }
