@@ -3,6 +3,7 @@ import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, sav
 import { installCopyButtons, markCopyScope } from "./copy-buttons.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
+import { createDelegateTps } from "./delegate-tps.ts";
 import { createFooterSegments } from "./footer-segments.ts";
 import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
@@ -56,6 +57,7 @@ export default function (pi: ExtensionAPI) {
 	let copyButtons: ReturnType<typeof installCopyButtons> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 	const footerSegments = createFooterSegments(pi.events, () => requestFooterRender?.());
+	const delegateTps = createDelegateTps(pi.events, () => requestFooterRender?.());
 	const terminalTitle = createTerminalTitle({
 		getTui: () => editor?.getTui(),
 		getInfo: () => lastCtx && {
@@ -132,7 +134,7 @@ export default function (pi: ExtensionAPI) {
 					scheduleGitRefresh: () => {
 						void scheduleGitRefresh(ctx);
 					},
-					getLiveTps: () => turnTelemetry.getLiveTps(),
+					getLiveTps: () => delegateTps.merge(turnTelemetry.getLiveTps()),
 					getExtensionSegments: footerSegments.getSegments,
 					canEmbedInEditor: () => editor?.isFramed() ?? false,
 				},
@@ -232,6 +234,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
+		delegateTps.clear();
 		lastCtx = ctx;
 		state.workingSince = undefined;
 		state.lastDoneIn = undefined;
@@ -249,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
+		delegateTps.clear();
 		stopWorkingUpdates();
 		footerSegments.deactivate();
 		if (active) {

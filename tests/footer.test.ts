@@ -1005,6 +1005,18 @@ test("status line wraps coloured text inside the given width", () => {
 	}
 });
 
+test("working timer labels the merged sub-agent rate in both languages", () => {
+	const { component, config } = footerFixture({
+		state: { workingSince: Date.now() }, hooks: { getLiveTps: () => ({ tps: 141.6, stale: false, subagents: 2 }) },
+	});
+	config.footerSegments.hostname = false;
+	assert.match(component.render(140)[0]!, /~142 tok\/s ·subagents ×2/);
+	config.settingsLanguage = "zh";
+	assert.match(component.render(140)[0]!, /~142 tok\/s ·子代理×2/);
+	config.footerSegments.liveTps = false;
+	assert.doesNotMatch(component.render(140)[0]!, /tok\/s/);
+});
+
 test("working timer shows live TPS gated by its footer setting and sheds it first", () => {
 	let liveTps: LiveTps | null = { tps: 53.5, stale: false };
 	// Tag the color of the TPS part so the stale (dim) state is visible.

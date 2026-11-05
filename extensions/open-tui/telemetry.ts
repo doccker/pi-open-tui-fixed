@@ -70,6 +70,8 @@ export interface LiveTps {
 	tps: number;
 	/** True between messages, when the value is the previous message's last rate. */
 	stale: boolean;
+	/** Set when the rate is the sum of running sub-agents instead of the main session. */
+	subagents?: number;
 }
 
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {

@@ -103,7 +103,7 @@ After each complete agent run, pi-open-tui shows one transient result, combining
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
 ```
 
-TPS measures provider-reported output tokens over generation time, including waiting and stalls but excluding tool execution between turns. The working timer also shows an estimated live speed such as `~54 tok/s` during streaming. The `$ / M` field is the effective rate per million tokens for the run; the footer shows cumulative session cost.
+TPS measures provider-reported output tokens over generation time, including waiting and stalls but excluding tool execution between turns. The working timer also shows an estimated live speed such as `~54 tok/s` during streaming. While the main session is blocked on delegated sub-agents (the `delegate:tps` event from the delegate extension), it shows their summed speed instead, such as `~142 tok/s ·subagents ×2`. The `$ / M` field is the effective rate per million tokens for the run; the footer shows cumulative session cost.
 
 Toggle notification fields under **Telemetry → Measurements**, or live speed under **Footer → Runtime → Live TPS**. See [measurement definitions](./docs/implementation.md#usage-and-telemetry) for formulas, timing boundaries, and cache accounting.
 
